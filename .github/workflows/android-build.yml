@@ -30,15 +30,21 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure Gradle Wrapper Executable
+        run: |
+          if [ ! -f ./gradlew ]; then
+            gradle wrapper
+          fi
+          chmod +x ./gradlew
 
       - name: Setup Secrets & Environment
         run: |
           if [ ! -f .env ]; then
-            cp .env.example .env || touch .env
+            cp .env.example .env 2>/dev/null || touch .env
           fi
 
       - name: Run Unit & Robolectric Tests

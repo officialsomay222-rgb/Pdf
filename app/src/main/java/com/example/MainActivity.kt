@@ -100,8 +100,14 @@ class MainActivity : ComponentActivity() {
                                     viewModel.openDocument(doc)
                                     viewModel.exportDocument(context)
                                 },
+                                onOpenCompressor = { doc ->
+                                    viewModel.openCompressorForDoc(doc)
+                                },
                                 onDeleteDocument = { viewModel.deleteDocument(it) },
-                                onTriggerBuild = { viewModel.triggerInAppBuild(context) },
+                                onOpenPdfMaker = { viewModel.setPdfMakerOpen(true) },
+                                onCreatePdfFromImages = { title, bitmaps, filter ->
+                                    viewModel.createPdfFromScannedImages(title, bitmaps, filter, context)
+                                },
                                 modifier = Modifier.padding(innerPadding)
                             )
                         }
@@ -116,6 +122,28 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Dialogs accessible from both Home and Workspace
+                    if (uiState.isPdfMakerOpen) {
+                        PdfMakerStudioDialog(
+                            onDismiss = { viewModel.setPdfMakerOpen(false) },
+                            onCreatePdf = { title, bitmaps, filter ->
+                                viewModel.createPdfFromScannedImages(title, bitmaps, filter, context)
+                            }
+                        )
+                    }
+
+                    if (uiState.isCompressorOpen) {
+                        val targetDoc = uiState.compressTargetDoc ?: uiState.activeDocument ?: uiState.documents.firstOrNull()
+                        if (targetDoc != null) {
+                            PdfCompressorDialog(
+                                document = targetDoc,
+                                onDismiss = { viewModel.setCompressorOpen(false) },
+                                onCompress = { doc, quality ->
+                                    viewModel.compressDocument(doc, quality, context)
+                                }
+                            )
+                        }
+                    }
+
                     if (uiState.isCreateProjectDialogOpen) {
                         CreateProjectDialog(
                             onDismiss = { viewModel.setCreateProjectDialogOpen(false) },

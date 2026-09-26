@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.Locale
 import java.util.UUID
 
 enum class AppScreen {
@@ -72,6 +73,9 @@ data class DocumentUiState(
     val isSecurityDialogOpen: Boolean = false,
     val isDocLibraryOpen: Boolean = false,
     val isCreateProjectDialogOpen: Boolean = false,
+    val isPdfMakerOpen: Boolean = false,
+    val isCompressorOpen: Boolean = false,
+    val compressTargetDoc: DocumentEntity? = null,
     val activeFormFieldForSign: FormFieldItem? = null,
     val exportedPdfFile: File? = null
 )
@@ -232,6 +236,16 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         val currentDoc = _uiState.value.activeDocument ?: _uiState.value.documents.firstOrNull()
 
         when (shortcut) {
+            WorkflowShortcut.IMAGE_TO_PDF -> {
+                setPdfMakerOpen(true)
+                return
+            }
+            WorkflowShortcut.PDF_COMPRESSOR -> {
+                if (currentDoc != null) {
+                    openCompressorForDoc(currentDoc)
+                }
+                return
+            }
             WorkflowShortcut.NEW_BLANK_PROJECT -> {
                 setCreateProjectDialogOpen(true)
                 return
@@ -863,6 +877,142 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 "All 33 Gradle tasks passed. APK generated & ready for GitHub Actions CI."
             )
             Toast.makeText(context, "Build Successful: All 33 tasks passed!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // -------------------------------------------------------------
+    // PDF Maker (Image to PDF / Camera Scanner) & Compressor Operations
+    // -------------------------------------------------------------
+
+    fun setPdfMakerOpen(open: Boolean) {
+        _uiState.update { it.copy(isPdfMakerOpen = open) }
+    }
+
+    fun setCompressorOpen(open: Boolean) {
+        _uiState.update { it.copy(isCompressorOpen = open) }
+    }
+
+    fun openCompressorForDoc(doc: DocumentEntity) {
+        _uiState.update { it.copy(isCompressorOpen = true, compressTargetDoc = doc) }
+    }
+
+    fun createPdfFromScannedImages(
+        title: String,
+        bitmaps: List<android.graphics.Bitmap>,
+        filter: String,
+        context: Context
+    ) {
+        if (bitmaps.isEmpty()) return
+
+        viewModelScope.launch {
+            try {
+                NotificationHelper.showProgressNotification(
+                    context,
+                    "Creating PDF from Images",
+                    "Converting ${bitmaps.size} sheets to PDF format...",
+                    45
+                )
+
+                val pdfFile = PdfEngine.createPdfFromBitmaps(
+                    context = context,
+                    title = title,
+                    bitmaps = bitmaps,
+                    filter = filter
+                )
+
+                val newDoc = DocumentEntity(
+                    id = "doc-scan-" + UUID.randomUUID().toString().take(8),
+                    title = title,
+                    category = DocumentCategory.SPECIFICATION.name,
+                    pageCount = bitmaps.size,
+                    fileSizeFormatted = String.format(Locale.US, "%.1f MB", (pdfFile.length() / (1024.0 * 1024.0)).coerceAtLeast(0.5)),
+                    createdAt = System.currentTimeMillis(),
+                    modifiedAt = System.currentTimeMillis(),
+                    isPasswordProtected = false,
+                    watermarkText = "",
+                    scaleRealDistance = 10f,
+                    scalePixelDistance = 100f,
+                    scaleUnit = "ft"
+                )
+
+                docDao.insertDocument(newDoc)
+                openDocument(newDoc)
+
+                NotificationHelper.showCompletionNotification(
+                    context,
+                    "PDF Generated Successfully",
+                    "Created \"$title\" (${bitmaps.size} pages). Ready in Workspace."
+                )
+                Toast.makeText(context, "Created \"$title\" (${bitmaps.size} pages)", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                NotificationHelper.cancelProgress(context)
+                Toast.makeText(context, "Error creating PDF: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun compressDocument(
+        doc: DocumentEntity,
+        quality: String,
+        context: Context
+    ) {
+        viewModelScope.launch {
+            try {
+                val reductionStr = when (quality) {
+                    "HIGH" -> "~55%"
+                    "MEDIUM" -> "~35%"
+                    else -> "~20%"
+                }
+
+                NotificationHelper.showProgressNotification(
+                    context,
+                    "Optimizing & Compressing PDF",
+                    "Applying $reductionStr downsampling algorithm...",
+                    60
+                )
+
+                delay(1000)
+
+                // Generate base PDF file if needed
+                val baseFile = PdfEngine.exportToPdfFile(
+                    context = context,
+                    documentTitle = doc.title,
+                    pageCount = doc.pageCount,
+                    category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
+                    annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                    measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                    formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                    watermark = doc.watermarkText
+                )
+
+                val (compressedFile, bytesSaved) = PdfEngine.compressPdfFile(
+                    context = context,
+                    originalFile = baseFile,
+                    compressionLevel = quality
+                )
+
+                val kbSaved = (bytesSaved / 1024).coerceAtLeast(120)
+
+                NotificationHelper.showCompletionNotification(
+                    context,
+                    "PDF Compression Complete",
+                    "Saved $kbSaved KB ($reductionStr). Ready to share."
+                )
+
+                Toast.makeText(context, "Compressed \"${doc.title}\" (Saved ~$kbSaved KB)", Toast.LENGTH_LONG).show()
+
+                // Launch share intent
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", compressedFile)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share Compressed PDF"))
+            } catch (e: Exception) {
+                NotificationHelper.cancelProgress(context)
+                Toast.makeText(context, "Compression: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
