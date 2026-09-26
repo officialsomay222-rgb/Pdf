@@ -95,12 +95,13 @@ class MainActivity : ComponentActivity() {
                                 onSearchChange = { viewModel.setSearchQuery(it) },
                                 onCategoryFilterChange = { viewModel.setCategoryFilter(it) },
                                 onOpenCreateDialog = { viewModel.setCreateProjectDialogOpen(true) },
-                                onOpenBuildHub = { viewModel.setBuildDialogOpen(true) },
+                                onOpenBuildHub = { viewModel.triggerInAppBuild(context) },
                                 onExportDocument = { doc ->
                                     viewModel.openDocument(doc)
                                     viewModel.exportDocument(context)
                                 },
                                 onDeleteDocument = { viewModel.deleteDocument(it) },
+                                onTriggerBuild = { viewModel.triggerInAppBuild(context) },
                                 modifier = Modifier.padding(innerPadding)
                             )
                         }
