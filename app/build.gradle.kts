@@ -16,8 +16,9 @@ android {
     applicationId = "com.aistudio.documentos.xkzp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    val buildNum = System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 1
+    versionCode = buildNum
+    versionName = if (System.getenv("BUILD_NUMBER") != null) "1.0.$buildNum" else "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

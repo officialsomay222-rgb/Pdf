@@ -16,7 +16,7 @@ on:
           - debug
           - release
       skip_tests:
-        description: 'Skip Unit Tests (recommended to ensure fast & reliable APK build)'
+        description: 'Skip Unit Tests (ensures fast & reliable APK build)'
         required: false
         default: true
         type: boolean
@@ -52,6 +52,42 @@ jobs:
             cp .env.example .env 2>/dev/null || touch .env
           fi
 
+      - name: Setup Signing Keystores
+        run: |
+          echo "=== Setting up Keystores for Android Signing ==="
+          
+          # 1. Restore debug.keystore from persistent repo base64
+          if [ -f debug.keystore.base64 ]; then
+            echo "Restoring persistent debug.keystore from debug.keystore.base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          
+          # Verify debug.keystore is present and non-empty
+          if [ ! -s debug.keystore ]; then
+            echo "Generating fallback debug.keystore..."
+            keytool -genkey -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          # 2. Setup release keystore (my-upload-key.jks)
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "Restoring release keystore from GitHub Secret..."
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
+          elif [ ! -f my-upload-key.jks ]; then
+            echo "Creating upload keystore for release builds..."
+            keytool -genkey -v -keystore my-upload-key.jks \
+              -storepass "${{ secrets.STORE_PASSWORD || 'android' }}" \
+              -alias upload \
+              -keypass "${{ secrets.KEY_PASSWORD || 'android' }}" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Docs Z,O=Docs Z,C=US"
+          fi
+
+          echo "Keystore setup complete:"
+          ls -la debug.keystore my-upload-key.jks
+
       - name: Run Unit Tests (Non-blocking)
         if: "${{ github.event.inputs.skip_tests != 'true' && github.event.inputs.skip_tests != true }}"
         continue-on-error: true
@@ -59,17 +95,23 @@ jobs:
 
       - name: Build Debug APK
         if: "${{ github.event.inputs.build_type != 'release' }}"
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: ./gradlew assembleDebug -x test --no-daemon
 
       - name: Build Release APK
         if: "${{ github.event.inputs.build_type == 'release' }}"
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
         run: ./gradlew assembleRelease -x test --no-daemon
 
       - name: Upload Debug APK Artifact
         if: "${{ github.event.inputs.build_type != 'release' }}"
         uses: actions/upload-artifact@v4
         with:
-          name: DocsZ-Debug-APK
+          name: DocsZ-Debug-APK-v${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
           if-no-files-found: warn
@@ -78,7 +120,7 @@ jobs:
         if: "${{ github.event.inputs.build_type == 'release' }}"
         uses: actions/upload-artifact@v4
         with:
-          name: DocsZ-Release-APK
+          name: DocsZ-Release-APK-v${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
           retention-days: 14
           if-no-files-found: warn
