@@ -13,11 +13,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -94,8 +97,8 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = MaterialTheme.colorScheme.background,
-                    contentWindowInsets = WindowInsets.safeDrawing
-                ) { innerPadding ->
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                ) { _ ->
                     when (uiState.currentScreen) {
                         AppScreen.HOME -> {
                             HomeScreen(
@@ -104,7 +107,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenDocument = { viewModel.openDocument(it) },
                                 onLaunchWorkflow = { viewModel.launchWorkflow(it) },
                                 onResumeWorkspace = { viewModel.navigateToWorkspace() },
-                                modifier = Modifier.padding(innerPadding)
+                                modifier = Modifier.fillMaxSize()
                             )
                         }
                         AppScreen.WORKSPACE -> {
@@ -112,7 +115,7 @@ class MainActivity : ComponentActivity() {
                                 uiState = uiState,
                                 viewModel = viewModel,
                                 onNavigateHome = { viewModel.navigateToHome() },
-                                modifier = Modifier.padding(innerPadding)
+                                modifier = Modifier.fillMaxSize()
                             )
                         }
                     }
@@ -275,88 +278,57 @@ fun DocumentOsScreen(
     val currentMeasurements = uiState.measurements[activeDocId] ?: emptyList()
     val currentFields = uiState.formFields[activeDocId] ?: emptyList()
 
-    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    val currentPage = (activeTab?.activePageIndex ?: 0) + 1
+    val totalPages = activeTab?.pageCount ?: 1
+
+    var showMoreMenu by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 1. Top Enterprise Control Bar with Home Navigation
-            TopEnterpriseBar(
+            // 1. Sleek Modern PDF Top Bar (Full Screen Status Bar Compatible)
+            ModernPdfTopBar(
                 title = activeDoc?.title ?: "Docs Z",
-                category = activeTab?.category ?: DocumentCategory.BLUEPRINT,
-                currentPage = (activeTab?.activePageIndex ?: 0) + 1,
-                totalPages = activeTab?.pageCount ?: 1,
+                category = activeTab?.category ?: DocumentCategory.CONTRACT,
+                fileSize = activeDoc?.fileSizeFormatted ?: "2.4 MB",
+                currentPage = currentPage,
+                totalPages = totalPages,
                 onNavigateHome = onNavigateHome,
-                onPreviousPage = {
-                    val curr = activeTab?.activePageIndex ?: 0
-                    if (curr > 0) viewModel.setActivePage(curr - 1)
-                },
-                onNextPage = {
-                    val curr = activeTab?.activePageIndex ?: 0
-                    val total = activeTab?.pageCount ?: 1
-                    if (curr < total - 1) viewModel.setActivePage(curr + 1)
-                },
+                onOpenExport = { viewModel.exportDocument(context) },
                 onOpenPageManager = { viewModel.setPageManagerOpen(true) },
                 onOpenSecurity = { viewModel.setSecurityDialogOpen(true) },
-                onOpenRepo = { viewModel.setDocLibraryOpen(true) }
+                showMoreMenu = showMoreMenu,
+                onToggleMoreMenu = { showMoreMenu = !showMoreMenu },
+                onDismissMoreMenu = { showMoreMenu = false },
+                onCompress = {
+                    showMoreMenu = false
+                    if (activeDoc != null) viewModel.openCompressorForDoc(activeDoc)
+                },
+                onSign = {
+                    showMoreMenu = false
+                    viewModel.setSignatureDialogOpen(true)
+                },
+                onCalibrate = {
+                    showMoreMenu = false
+                    viewModel.setScaleDialogOpen(true)
+                },
+                onOcr = {
+                    showMoreMenu = false
+                    if (activeDoc != null) viewModel.extractTextFromDoc(activeDoc)
+                }
             )
 
-            // 2. Multi-Tab Workspace Dock
-            WorkspaceTabBar(
-                tabs = uiState.tabs,
-                activeTabId = uiState.activeTabId,
-                onTabSelected = { viewModel.selectTab(it) },
-                onTabClosed = { viewModel.closeTab(it) },
-                onOpenDocumentPicker = { viewModel.setDocLibraryOpen(true) }
-            )
-
-            // 3. Primary Engineering Toolbar
-            EngineeringToolbar(
-                activeMode = uiState.toolMode,
-                onModeChange = { viewModel.setToolMode(it) },
-                zoomLevel = activeTab?.zoomLevel ?: 1.0f,
-                onZoomIn = { viewModel.zoomIn() },
-                onZoomOut = { viewModel.zoomOut() },
-                onZoomFit = { viewModel.zoomFit() },
-                canUndo = viewModel.canUndo(),
-                canRedo = viewModel.canRedo(),
-                onUndo = { viewModel.undo() },
-                onRedo = { viewModel.redo() },
-                showMiniMap = uiState.showMiniMap,
-                onToggleMiniMap = { viewModel.toggleMiniMap() },
-                onOpenExport = { viewModel.exportDocument(context) }
-            )
-
-            // 4. Contextual Tool Drawers
-            AnimatedVisibility(visible = uiState.toolMode == WorkspaceToolMode.MARKUP_DRAW) {
-                MarkupToolDrawer(
-                    selectedMarkup = uiState.markupType,
-                    onMarkupSelect = { viewModel.setMarkupType(it) },
-                    activeColorHex = uiState.activeColorHex,
-                    onColorSelect = { viewModel.setActiveColor(it) },
-                    strokeWidth = uiState.strokeWidth,
-                    onStrokeWidthChange = { viewModel.setStrokeWidth(it) },
-                    selectedStamp = uiState.selectedStamp,
-                    onStampSelect = { viewModel.setSelectedStamp(it) }
-                )
-            }
-
-            AnimatedVisibility(visible = uiState.toolMode == WorkspaceToolMode.CAD_MEASURE) {
-                MeasurementToolbar(
-                    activeScale = uiState.activeScale,
-                    selectedMeasurementType = uiState.measurementType,
-                    onMeasurementTypeSelect = { viewModel.setMeasurementType(it) },
-                    onOpenCalibration = { viewModel.setScaleDialogOpen(true) },
-                    onOpenTakeoffSummary = { viewModel.setTakeoffDialogOpen(true) },
-                    measurementsCount = currentMeasurements.size
-                )
-            }
-
-            // 5. The Document Canvas Area
+            // 2. High-Performance Document Canvas Viewport
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
                 DocumentCanvas(
-                    category = activeTab?.category ?: DocumentCategory.BLUEPRINT,
+                    category = activeTab?.category ?: DocumentCategory.CONTRACT,
                     pageIndex = activeTab?.activePageIndex ?: 0,
                     pageCount = activeTab?.pageCount ?: 1,
                     documentTitle = activeDoc?.title ?: "Docs Z",
@@ -383,30 +355,158 @@ fun DocumentOsScreen(
                     onFormFieldClick = { viewModel.onFormFieldClick(it) }
                 )
 
-                // 6. CAD Mini-Map Navigator
-                if (uiState.showMiniMap) {
+                // Floating Zoom HUD in Top-Right
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                    tonalElevation = 4.dp,
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        IconButton(onClick = { viewModel.zoomOut() }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Remove, "Zoom Out", modifier = Modifier.size(15.dp))
+                        }
+                        Text(
+                            "${((activeTab?.zoomLevel ?: 1.0f) * 100).toInt()}%",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                        IconButton(onClick = { viewModel.zoomIn() }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Add, "Zoom In", modifier = Modifier.size(15.dp))
+                        }
+                        IconButton(onClick = { viewModel.zoomFit() }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.FitScreen, "Fit", modifier = Modifier.size(15.dp), tint = CamScannerTeal)
+                        }
+                    }
+                }
+
+                // Floating Undo / Redo in Top-Left (when in editing modes)
+                if (uiState.toolMode == WorkspaceToolMode.MARKUP_DRAW) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                        shadowElevation = 8.dp,
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            IconButton(onClick = { viewModel.undo() }, enabled = viewModel.canUndo(), modifier = Modifier.size(28.dp)) {
+                                Icon(
+                                    Icons.Default.Undo,
+                                    "Undo",
+                                    tint = if (viewModel.canUndo()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(onClick = { viewModel.redo() }, enabled = viewModel.canRedo(), modifier = Modifier.size(28.dp)) {
+                                Icon(
+                                    Icons.Default.Redo,
+                                    "Redo",
+                                    tint = if (viewModel.canRedo()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // CAD Mini-Map Navigator (when toggled on)
+                if (uiState.showMiniMap && activeTab?.category == DocumentCategory.BLUEPRINT) {
                     CadMiniMap(
-                        category = activeTab?.category ?: DocumentCategory.BLUEPRINT,
-                        zoomLevel = activeTab?.zoomLevel ?: 1.0f,
-                        panOffsetX = activeTab?.panOffsetX ?: 0f,
-                        panOffsetY = activeTab?.panOffsetY ?: 0f,
+                        category = activeTab.category,
+                        zoomLevel = activeTab.zoomLevel,
+                        panOffsetX = activeTab.panOffsetX,
+                        panOffsetY = activeTab.panOffsetY,
                         canvasViewportWidth = 600f,
                         canvasViewportHeight = 800f,
                         docWidth = 720f,
                         docHeight = 980f,
-                        onNavigate = { newPanX, newPanY ->
-                            viewModel.setPanOffset(newPanX, newPanY)
-                        },
+                        onNavigate = { newPanX, newPanY -> viewModel.setPanOffset(newPanX, newPanY) },
                         onClose = { viewModel.toggleMiniMap() },
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(12.dp)
+                            .padding(end = 12.dp, bottom = 80.dp)
                     )
                 }
             }
+
+            // 3. Contextual Drawer (Only when an active editing tool is selected)
+            AnimatedVisibility(visible = uiState.toolMode == WorkspaceToolMode.MARKUP_DRAW) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp,
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                ) {
+                    MarkupToolDrawer(
+                        selectedMarkup = uiState.markupType,
+                        onMarkupSelect = { viewModel.setMarkupType(it) },
+                        activeColorHex = uiState.activeColorHex,
+                        onColorSelect = { viewModel.setActiveColor(it) },
+                        strokeWidth = uiState.strokeWidth,
+                        onStrokeWidthChange = { viewModel.setStrokeWidth(it) },
+                        selectedStamp = uiState.selectedStamp,
+                        onStampSelect = { viewModel.setSelectedStamp(it) }
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = uiState.toolMode == WorkspaceToolMode.CAD_MEASURE) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp,
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                ) {
+                    MeasurementToolbar(
+                        activeScale = uiState.activeScale,
+                        selectedMeasurementType = uiState.measurementType,
+                        onMeasurementTypeSelect = { viewModel.setMeasurementType(it) },
+                        onOpenCalibration = { viewModel.setScaleDialogOpen(true) },
+                        onOpenTakeoffSummary = { viewModel.setTakeoffDialogOpen(true) },
+                        measurementsCount = currentMeasurements.size
+                    )
+                }
+            }
+
+            // 4. Floating Capsule Action & Page Navigation Bar
+            FloatingCapsulePdfDock(
+                activeToolMode = uiState.toolMode,
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onSelectToolMode = { mode ->
+                    if (uiState.toolMode == mode) {
+                        viewModel.setToolMode(WorkspaceToolMode.VIEW_NAVIGATE)
+                    } else {
+                        viewModel.setToolMode(mode)
+                    }
+                },
+                onPreviousPage = {
+                    val curr = activeTab?.activePageIndex ?: 0
+                    if (curr > 0) viewModel.setActivePage(curr - 1)
+                },
+                onNextPage = {
+                    val curr = activeTab?.activePageIndex ?: 0
+                    val total = activeTab?.pageCount ?: 1
+                    if (curr < total - 1) viewModel.setActivePage(curr + 1)
+                },
+                onOpenPageManager = { viewModel.setPageManagerOpen(true) }
+            )
         }
 
-        // 7. Dialogs in Workspace
+        // 5. Global Document Workspace Modals
         if (uiState.isScaleDialogOpen) {
             ScaleCalibrationDialog(
                 currentScale = uiState.activeScale,
@@ -460,140 +560,332 @@ fun DocumentOsScreen(
     }
 }
 
+// -------------------------------------------------------------
+// CLEAN & PROFESSIONAL PDF TOP APP BAR
+// -------------------------------------------------------------
+
 @Composable
-private fun TopEnterpriseBar(
+private fun ModernPdfTopBar(
     title: String,
     category: DocumentCategory,
+    fileSize: String,
     currentPage: Int,
     totalPages: Int,
     onNavigateHome: () -> Unit,
-    onPreviousPage: () -> Unit,
-    onNextPage: () -> Unit,
+    onOpenExport: () -> Unit,
     onOpenPageManager: () -> Unit,
     onOpenSecurity: () -> Unit,
-    onOpenRepo: () -> Unit
+    showMoreMenu: Boolean,
+    onToggleMoreMenu: () -> Unit,
+    onDismissMoreMenu: () -> Unit,
+    onCompress: () -> Unit,
+    onSign: () -> Unit,
+    onCalibrate: () -> Unit,
+    onOcr: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .border(width = 0.5.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .statusBarsPadding()
     ) {
-        // Left: Home button & Title
         Row(
-            modifier = Modifier.weight(1f, fill = false),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onNavigateHome,
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(CamScannerTeal.copy(alpha = 0.15f))
-                    .testTag("nav_home_button")
+            // Left: Back Home Arrow & Document Information
+            Row(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Home,
-                    contentDescription = "Back to Home",
-                    tint = CamScannerTeal,
-                    modifier = Modifier.size(18.dp)
-                )
+                IconButton(
+                    onClick = onNavigateHome,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(CamScannerTeal.copy(alpha = 0.12f))
+                        .testTag("nav_home_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to Home",
+                        tint = CamScannerTeal,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column {
+                    Text(
+                        text = title,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 170.dp)
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(CamScannerTeal.copy(alpha = 0.15f))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = category.name.replace("_", " "),
+                                color = CamScannerTeal,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Page $currentPage of $totalPages • $fileSize",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            // Right: Primary Export, Page Assembly, Security & Overflow
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onOpenExport,
+                    modifier = Modifier.size(36.dp).testTag("open_export_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "Share PDF",
+                        tint = CamScannerTeal,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
 
-            Column {
-                Text(
-                    text = title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 160.dp)
-                )
-                Text(
-                    text = category.name.replace("_", " "),
-                    color = CamScannerTeal,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                IconButton(
+                    onClick = onOpenPageManager,
+                    modifier = Modifier.size(36.dp).testTag("open_page_assembly_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoStories,
+                        contentDescription = "Visual Page Assembly",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenSecurity,
+                    modifier = Modifier.size(36.dp).testTag("open_security_dialog_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = "Security Policies",
+                        tint = Color(0xFFF59E0B),
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                Box {
+                    IconButton(
+                        onClick = onToggleMoreMenu,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showMoreMenu,
+                        onDismissRequest = onDismissMoreMenu
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Compress PDF") },
+                            leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null, tint = CamScannerTeal) },
+                            onClick = onCompress
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Digital Signature") },
+                            leadingIcon = { Icon(Icons.Default.AssignmentTurnedIn, contentDescription = null, tint = CamScannerTeal) },
+                            onClick = onSign
+                        )
+                        DropdownMenuItem(
+                            text = { Text("CAD Calibration & Takeoff") },
+                            leadingIcon = { Icon(Icons.Default.SquareFoot, contentDescription = null, tint = Color(0xFFF59E0B)) },
+                            onClick = onCalibrate
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Extract Text (OCR)") },
+                            leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null, tint = Color(0xFF8B5CF6)) },
+                            onClick = onOcr
+                        )
+                    }
+                }
             }
         }
+    }
+}
 
-        // Center: Sheet Pager Controls
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 4.dp, vertical = 2.dp)
+// -------------------------------------------------------------
+// FLOATING CAPSULE PDF TOOL DOCK & PAGE STEPPER
+// -------------------------------------------------------------
+
+@Composable
+private fun FloatingCapsulePdfDock(
+    activeToolMode: WorkspaceToolMode,
+    currentPage: Int,
+    totalPages: Int,
+    onSelectToolMode: (WorkspaceToolMode) -> Unit,
+    onPreviousPage: () -> Unit,
+    onNextPage: () -> Unit,
+    onOpenPageManager: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            shadowElevation = 14.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+            modifier = Modifier.height(56.dp)
         ) {
-            IconButton(
-                onClick = onPreviousPage,
-                enabled = currentPage > 1,
-                modifier = Modifier.size(24.dp).testTag("prev_page_button")
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Previous Page",
-                    tint = if (currentPage > 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                    modifier = Modifier.size(14.dp)
+                // 1. Read Mode
+                CapsuleDocModeItem(
+                    icon = Icons.Default.Visibility,
+                    label = "Read",
+                    isSelected = activeToolMode == WorkspaceToolMode.VIEW_NAVIGATE,
+                    onClick = { onSelectToolMode(WorkspaceToolMode.VIEW_NAVIGATE) }
                 )
-            }
 
-            Text(
-                text = "$currentPage / $totalPages",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .clickable(onClick = onOpenPageManager)
-                    .padding(horizontal = 6.dp)
-                    .testTag("page_number_indicator")
-            )
-
-            IconButton(
-                onClick = onNextPage,
-                enabled = currentPage < totalPages,
-                modifier = Modifier.size(24.dp).testTag("next_page_button")
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "Next Page",
-                    tint = if (currentPage < totalPages) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                    modifier = Modifier.size(14.dp)
+                // 2. Annotate / Markup Mode
+                CapsuleDocModeItem(
+                    icon = Icons.Default.Edit,
+                    label = "Markup",
+                    isSelected = activeToolMode == WorkspaceToolMode.MARKUP_DRAW,
+                    onClick = { onSelectToolMode(WorkspaceToolMode.MARKUP_DRAW) }
                 )
+
+                // 3. Digital Sign & Forms
+                CapsuleDocModeItem(
+                    icon = Icons.Default.AssignmentTurnedIn,
+                    label = "Sign",
+                    isSelected = activeToolMode == WorkspaceToolMode.FORMS_FILL,
+                    onClick = { onSelectToolMode(WorkspaceToolMode.FORMS_FILL) }
+                )
+
+                // 4. CAD Measurements
+                CapsuleDocModeItem(
+                    icon = Icons.Default.SquareFoot,
+                    label = "CAD",
+                    isSelected = activeToolMode == WorkspaceToolMode.CAD_MEASURE,
+                    onClick = { onSelectToolMode(WorkspaceToolMode.CAD_MEASURE) }
+                )
+
+                // Divider
+                Box(
+                    modifier = Modifier
+                        .height(24.dp)
+                        .width(1.dp)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                )
+
+                // 5. Page Stepper
+                IconButton(
+                    onClick = onPreviousPage,
+                    enabled = currentPage > 1,
+                    modifier = Modifier.size(32.dp).testTag("prev_page_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Previous Page",
+                        tint = if (currentPage > 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(CamScannerTeal.copy(alpha = 0.12f))
+                        .clickable(onClick = onOpenPageManager)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .testTag("page_number_indicator"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "$currentPage / $totalPages",
+                        color = CamScannerTeal,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                IconButton(
+                    onClick = onNextPage,
+                    enabled = currentPage < totalPages,
+                    modifier = Modifier.size(32.dp).testTag("next_page_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Next Page",
+                        tint = if (currentPage < totalPages) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
+    }
+}
 
-        // Right Actions: Page Manager & Security
+@Composable
+private fun CapsuleDocModeItem(
+    icon: ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(if (isSelected) CamScannerTeal else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onOpenPageManager,
-                modifier = Modifier.size(30.dp).testTag("open_page_assembly_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoStories,
-                    contentDescription = "Visual Page Assembly",
-                    tint = Color(0xFF38BDF8),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            IconButton(
-                onClick = onOpenSecurity,
-                modifier = Modifier.size(30.dp).testTag("open_security_dialog_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Security,
-                    contentDescription = "Security Policies",
-                    tint = Color(0xFFF59E0B),
-                    modifier = Modifier.size(18.dp)
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+            )
+            if (isSelected) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = label,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
             }
         }

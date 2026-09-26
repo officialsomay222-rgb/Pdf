@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -76,7 +77,7 @@ fun DocumentCanvas(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0F1D))
+            .background(MaterialTheme.colorScheme.background)
             .transformable(state = transformState)
             .pointerInput(toolMode, markupType, measurementType, zoomLevel, panOffsetX, panOffsetY) {
                 if (toolMode == WorkspaceToolMode.VIEW_NAVIGATE) {
@@ -259,35 +260,33 @@ fun DocumentCanvas(
 
             // 1. Draw Document Canvas Sheet Shadow & Base
             drawRoundRect(
-                color = Color.Black.copy(alpha = 0.5f),
+                color = Color.Black.copy(alpha = 0.18f),
                 topLeft = Offset(pageLeft + 4f, pageTop + 6f),
                 size = Size(scaledPageWidth, scaledPageHeight),
-                cornerRadius = CornerRadius(6f, 6f)
+                cornerRadius = CornerRadius(8f, 8f)
             )
 
-            // Sheet Paper Background
+            // Sheet Paper Background - Clean authentic white paper for all documents (or technical navy if blueprint)
             val paperColor = when (category) {
                 DocumentCategory.BLUEPRINT -> Color(0xFF0F1E36) // Deep blueprint midnight navy
-                DocumentCategory.CONTRACT -> Color(0xFFFAFAFA)  // Crisp executive bond paper
-                DocumentCategory.INSPECTION_FORM -> Color(0xFFF8FAFC) // Municipal technical form
-                else -> Color(0xFF1E293B)
+                else -> Color.White // Crisp clean white paper for contracts, forms, notes, PDFs, specs, receipts
             }
             drawRoundRect(
                 color = paperColor,
                 topLeft = Offset(pageLeft, pageTop),
                 size = Size(scaledPageWidth, scaledPageHeight),
-                cornerRadius = CornerRadius(4f, 4f)
+                cornerRadius = CornerRadius(6f, 6f)
             )
 
             // Document Border Line
             drawRoundRect(
                 color = when (category) {
                     DocumentCategory.BLUEPRINT -> Color(0xFF0284C7)
-                    else -> Color(0xFFCBD5E1)
+                    else -> Color(0xFFE2E8F0)
                 },
                 topLeft = Offset(pageLeft, pageTop),
                 size = Size(scaledPageWidth, scaledPageHeight),
-                cornerRadius = CornerRadius(4f, 4f),
+                cornerRadius = CornerRadius(6f, 6f),
                 style = Stroke(width = 1.5f)
             )
 

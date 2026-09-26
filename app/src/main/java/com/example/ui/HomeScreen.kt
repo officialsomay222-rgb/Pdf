@@ -191,27 +191,13 @@ fun HomeScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             DocsZBottomNavBar(
                 activeTab = uiState.activeNavTab,
                 docCount = uiState.documents.size,
                 onSelectTab = { viewModel.setNavTab(it) }
             )
-        },
-        floatingActionButton = {
-            if (uiState.activeNavTab == CamScannerNavTab.DOCS) {
-                FloatingActionButton(
-                    onClick = { viewModel.setNavTab(CamScannerNavTab.SCAN) },
-                    containerColor = CamScannerTeal,
-                    contentColor = Color.White,
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .size(58.dp)
-                        .testTag("home_camera_fab")
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = "Camera Scan", modifier = Modifier.size(26.dp))
-                }
-            }
         }
     ) { contentPadding ->
         Box(
@@ -267,7 +253,7 @@ fun HomeScreen(
 }
 
 // -------------------------------------------------------------
-// BOTTOM NAVIGATION BAR (CamScanner 5 TABS)
+// BOTTOM NAVIGATION BAR (Floating Capsule Design)
 // -------------------------------------------------------------
 
 @Composable
@@ -276,117 +262,121 @@ private fun DocsZBottomNavBar(
     docCount: Int,
     onSelectTab: (CamScannerNavTab) -> Unit
 ) {
-    NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 8.dp,
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.navigationBars)
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
-        NavigationBarItem(
-            selected = activeTab == CamScannerNavTab.DOCS,
-            onClick = { onSelectTab(CamScannerNavTab.DOCS) },
-            icon = {
-                Icon(
-                    imageVector = if (activeTab == CamScannerNavTab.DOCS) Icons.Default.Description else Icons.Outlined.Description,
-                    contentDescription = "Docs"
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            shadowElevation = 14.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CapsuleTabItem(
+                    icon = if (activeTab == CamScannerNavTab.DOCS) Icons.Default.Description else Icons.Outlined.Description,
+                    label = "Docs",
+                    isSelected = activeTab == CamScannerNavTab.DOCS,
+                    onClick = { onSelectTab(CamScannerNavTab.DOCS) },
+                    modifier = Modifier.testTag("nav_tab_docs")
                 )
-            },
-            label = { Text("Docs", fontSize = 11.sp, fontWeight = if (activeTab == CamScannerNavTab.DOCS) FontWeight.Bold else FontWeight.Normal) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = Color.White,
-                selectedTextColor = CamScannerTeal,
-                indicatorColor = CamScannerTeal,
-                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        )
 
-        NavigationBarItem(
-            selected = activeTab == CamScannerNavTab.TOOLS,
-            onClick = { onSelectTab(CamScannerNavTab.TOOLS) },
-            icon = {
-                Icon(
-                    imageVector = if (activeTab == CamScannerNavTab.TOOLS) Icons.Default.GridView else Icons.Outlined.GridView,
-                    contentDescription = "Tools"
+                CapsuleTabItem(
+                    icon = if (activeTab == CamScannerNavTab.TOOLS) Icons.Default.GridView else Icons.Outlined.GridView,
+                    label = "Tools",
+                    isSelected = activeTab == CamScannerNavTab.TOOLS,
+                    onClick = { onSelectTab(CamScannerNavTab.TOOLS) },
+                    modifier = Modifier.testTag("nav_tab_tools")
                 )
-            },
-            label = { Text("Tools", fontSize = 11.sp, fontWeight = if (activeTab == CamScannerNavTab.TOOLS) FontWeight.Bold else FontWeight.Normal) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = Color.White,
-                selectedTextColor = CamScannerTeal,
-                indicatorColor = CamScannerTeal,
-                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        )
 
-        NavigationBarItem(
-            selected = activeTab == CamScannerNavTab.SCAN,
-            onClick = { onSelectTab(CamScannerNavTab.SCAN) },
-            icon = {
+                // Hero Center Action - Camera Scan Button
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(46.dp)
                         .clip(CircleShape)
-                        .background(CamScannerTeal),
+                        .background(CamScannerTeal)
+                        .clickable { onSelectTab(CamScannerNavTab.SCAN) }
+                        .testTag("home_camera_fab"),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.CameraAlt,
-                        contentDescription = "Scan",
+                        contentDescription = "Scan Document",
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
-            },
-            label = { Text("Scan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CamScannerTeal) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = Color.White,
-                selectedTextColor = CamScannerTeal,
-                indicatorColor = Color.Transparent,
-                unselectedIconColor = Color.White,
-                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        )
 
-        NavigationBarItem(
-            selected = activeTab == CamScannerNavTab.FOLDERS,
-            onClick = { onSelectTab(CamScannerNavTab.FOLDERS) },
-            icon = {
-                Icon(
-                    imageVector = if (activeTab == CamScannerNavTab.FOLDERS) Icons.Default.Folder else Icons.Outlined.Folder,
-                    contentDescription = "Folders"
+                CapsuleTabItem(
+                    icon = if (activeTab == CamScannerNavTab.FOLDERS) Icons.Default.Folder else Icons.Outlined.Folder,
+                    label = "Folders",
+                    isSelected = activeTab == CamScannerNavTab.FOLDERS,
+                    onClick = { onSelectTab(CamScannerNavTab.FOLDERS) },
+                    modifier = Modifier.testTag("nav_tab_folders")
                 )
-            },
-            label = { Text("Folders", fontSize = 11.sp, fontWeight = if (activeTab == CamScannerNavTab.FOLDERS) FontWeight.Bold else FontWeight.Normal) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = Color.White,
-                selectedTextColor = CamScannerTeal,
-                indicatorColor = CamScannerTeal,
-                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        )
 
-        NavigationBarItem(
-            selected = activeTab == CamScannerNavTab.SETTINGS,
-            onClick = { onSelectTab(CamScannerNavTab.SETTINGS) },
-            icon = {
-                Icon(
-                    imageVector = if (activeTab == CamScannerNavTab.SETTINGS) Icons.Default.Settings else Icons.Outlined.Settings,
-                    contentDescription = "Settings"
+                CapsuleTabItem(
+                    icon = if (activeTab == CamScannerNavTab.SETTINGS) Icons.Default.Settings else Icons.Outlined.Settings,
+                    label = "Settings",
+                    isSelected = activeTab == CamScannerNavTab.SETTINGS,
+                    onClick = { onSelectTab(CamScannerNavTab.SETTINGS) },
+                    modifier = Modifier.testTag("nav_tab_settings")
                 )
-            },
-            label = { Text("Settings", fontSize = 11.sp, fontWeight = if (activeTab == CamScannerNavTab.SETTINGS) FontWeight.Bold else FontWeight.Normal) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = Color.White,
-                selectedTextColor = CamScannerTeal,
-                indicatorColor = CamScannerTeal,
-                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        }
+    }
+}
+
+@Composable
+private fun CapsuleTabItem(
+    icon: ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Column(
+        modifier = modifier
+            .clip(CircleShape)
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(if (isSelected) CamScannerTeal.copy(alpha = 0.16f) else Color.Transparent)
+                .padding(horizontal = 10.dp, vertical = 3.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isSelected) CamScannerTeal else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp)
             )
+        }
+        Spacer(modifier = Modifier.height(1.dp))
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) CamScannerTeal else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -488,6 +478,7 @@ private fun DocsTabHomeContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 14.dp, vertical = 6.dp),
+            contentPadding = PaddingValues(bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // 1. Quick Tool Action Shortcuts Carousel (CamScanner Style)
@@ -665,100 +656,107 @@ private fun DocsZTopBar(
     onOpenSortMenu: () -> Unit,
     onImportFiles: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding()
     ) {
-        // App Identity & Search Bar
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchChange,
-            placeholder = { Text("Search docs, tags, text...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            leadingIcon = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // App Identity & Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchChange,
+                placeholder = { Text("Search docs, tags, text...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = CamScannerTeal,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(20.dp)) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .testTag("home_search_input"),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = CamScannerTeal,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                ),
+                shape = RoundedCornerShape(24.dp)
+            )
+
+            // View Mode Toggle (List vs Grid)
+            IconButton(
+                onClick = onToggleViewMode,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+            ) {
                 Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "Search",
+                    imageVector = if (docViewMode == DocViewMode.LIST) Icons.Default.GridView else Icons.Default.ViewList,
+                    contentDescription = "Toggle View",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // Sort Selector
+            IconButton(
+                onClick = onOpenSortMenu,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Sort,
+                    contentDescription = "Sort",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // Theme Toggle (Light ☀️ / Dark 🌙 / System ⚙️)
+            IconButton(
+                onClick = onToggleTheme,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = when (appThemeMode) {
+                        AppThemeMode.LIGHT -> Icons.Default.LightMode
+                        AppThemeMode.DARK -> Icons.Default.DarkMode
+                        AppThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
+                    },
+                    contentDescription = "Theme Mode",
                     tint = CamScannerTeal,
                     modifier = Modifier.size(18.dp)
                 )
-            },
-            trailingIcon = {
-                if (searchQuery.isNotBlank()) {
-                    IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(20.dp)) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            },
-            modifier = Modifier
-                .weight(1f)
-                .height(46.dp)
-                .testTag("home_search_input"),
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                focusedBorderColor = CamScannerTeal,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-            ),
-            shape = RoundedCornerShape(24.dp)
-        )
-
-        // View Mode Toggle (List vs Grid)
-        IconButton(
-            onClick = onToggleViewMode,
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface)
-                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-        ) {
-            Icon(
-                imageVector = if (docViewMode == DocViewMode.LIST) Icons.Default.GridView else Icons.Default.ViewList,
-                contentDescription = "Toggle View",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-
-        // Sort Selector
-        IconButton(
-            onClick = onOpenSortMenu,
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface)
-                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Sort,
-                contentDescription = "Sort",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-
-        // Theme Toggle (Light ☀️ / Dark 🌙 / System ⚙️)
-        IconButton(
-            onClick = onToggleTheme,
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface)
-                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-        ) {
-            Icon(
-                imageVector = when (appThemeMode) {
-                    AppThemeMode.LIGHT -> Icons.Default.LightMode
-                    AppThemeMode.DARK -> Icons.Default.DarkMode
-                    AppThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
-                },
-                contentDescription = "Theme Mode",
-                tint = CamScannerTeal,
-                modifier = Modifier.size(18.dp)
-            )
+            }
         }
     }
 }
@@ -777,14 +775,19 @@ private fun MultiSelectActionBar(
     onShare: () -> Unit,
     onMerge: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(CamScannerTeal)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .statusBarsPadding()
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.White)
@@ -819,6 +822,7 @@ private fun MultiSelectActionBar(
             }
         }
     }
+}
 }
 
 // -------------------------------------------------------------
@@ -1369,6 +1373,7 @@ private fun ToolsTabContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -1575,6 +1580,7 @@ private fun ScanStudioTabContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1829,6 +1835,7 @@ private fun FoldersTabContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1957,6 +1964,7 @@ private fun SettingsTabContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
