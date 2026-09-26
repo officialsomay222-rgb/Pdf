@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -152,7 +153,7 @@ fun PageManagerDialog(
                                         modifier = Modifier.size(24.dp).testTag("rotate_page_$index")
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.RotateRight,
+                                            imageVector = Icons.AutoMirrored.Filled.RotateRight,
                                             contentDescription = "Rotate 90°",
                                             tint = Color(0xFF38BDF8),
                                             modifier = Modifier.size(15.dp)

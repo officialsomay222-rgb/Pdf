@@ -7,8 +7,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -65,7 +65,7 @@ fun ScaleTakeoffDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.ListAlt,
+                    imageVector = Icons.AutoMirrored.Filled.ListAlt,
                     contentDescription = null,
                     tint = Color(0xFF10B981),
                     modifier = Modifier.size(22.dp)

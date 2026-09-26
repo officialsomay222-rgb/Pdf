@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ListAlt
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -85,7 +87,7 @@ fun MeasurementToolbar(
         // Tool: Distance Line
         MeasureTypeButton(
             label = "Distance",
-            icon = Icons.Default.ShowChart,
+            icon = Icons.AutoMirrored.Filled.ShowChart,
             isSelected = selectedMeasurementType == MeasurementType.DISTANCE_LINE,
             onClick = { onMeasurementTypeSelect(MeasurementType.DISTANCE_LINE) }
         )
@@ -126,7 +128,7 @@ fun MeasurementToolbar(
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.ListAlt,
+                imageVector = Icons.AutoMirrored.Filled.ListAlt,
                 contentDescription = null,
                 modifier = Modifier.size(13.dp),
                 tint = Color.White

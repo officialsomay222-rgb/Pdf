@@ -113,7 +113,7 @@ fun EngineeringToolbar(
             )
         }
 
-        Divider(color = DocBorderDark, thickness = 0.5.dp)
+        HorizontalDivider(color = DocBorderDark, thickness = 0.5.dp)
 
         // Utility Bar: Undo, Redo, Zoom Controls, MiniMap Toggle, Export
         Row(

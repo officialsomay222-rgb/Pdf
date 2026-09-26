@@ -1,10 +1,15 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -30,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.*
 import com.example.ui.AppScreen
@@ -51,6 +57,24 @@ class MainActivity : ComponentActivity() {
                 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                 val context = LocalContext.current
 
+                // Runtime notification permission request for Android 13+ (TIRAMISU / API 33+)
+                val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission(),
+                    onResult = { /* granted or denied */ }
+                )
+
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        if (ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
+
                 // BackHandler returns to Home screen if currently in workspace
                 BackHandler(enabled = uiState.currentScreen == AppScreen.WORKSPACE) {
                     viewModel.navigateToHome()
@@ -71,6 +95,7 @@ class MainActivity : ComponentActivity() {
                                 onSearchChange = { viewModel.setSearchQuery(it) },
                                 onCategoryFilterChange = { viewModel.setCategoryFilter(it) },
                                 onOpenCreateDialog = { viewModel.setCreateProjectDialogOpen(true) },
+                                onOpenBuildHub = { viewModel.setBuildDialogOpen(true) },
                                 onExportDocument = { doc ->
                                     viewModel.openDocument(doc)
                                     viewModel.exportDocument(context)
@@ -108,6 +133,17 @@ class MainActivity : ComponentActivity() {
                                 viewModel.setDocLibraryOpen(false)
                             },
                             onDismiss = { viewModel.setDocLibraryOpen(false) }
+                        )
+                    }
+
+                    if (uiState.isBuildDialogOpen) {
+                        BuildWorkflowDialog(
+                            isBuilding = uiState.isBuildingApp,
+                            buildProgress = uiState.buildProgress,
+                            buildStatusText = uiState.buildStatusText,
+                            buildSteps = uiState.buildSteps,
+                            onTriggerBuild = { viewModel.triggerInAppBuild(context) },
+                            onDismiss = { viewModel.setBuildDialogOpen(false) }
                         )
                     }
                 }

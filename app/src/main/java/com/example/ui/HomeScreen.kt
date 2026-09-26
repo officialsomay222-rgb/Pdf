@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -91,6 +93,13 @@ enum class WorkflowShortcut(
         icon = Icons.Default.FileDownload,
         accentColor = Color(0xFFE2E8F0),
         tag = "shortcut_export"
+    ),
+    GITHUB_BUILD_CI(
+        title = "GitHub CI & In-App Build",
+        description = "Compile APK in-app, notifications & GitHub Actions",
+        icon = Icons.Default.Terminal,
+        accentColor = Color(0xFF6366F1),
+        tag = "shortcut_github_ci"
     )
 }
 
@@ -103,6 +112,7 @@ fun HomeScreen(
     onSearchChange: (String) -> Unit,
     onCategoryFilterChange: (String) -> Unit,
     onOpenCreateDialog: () -> Unit,
+    onOpenBuildHub: () -> Unit,
     onExportDocument: (DocumentEntity) -> Unit,
     onDeleteDocument: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -132,7 +142,10 @@ fun HomeScreen(
     ) {
         // 1. Top Enterprise Branding Header
         item {
-            HomeTopHeader(onOpenCreateDialog = onOpenCreateDialog)
+            HomeTopHeader(
+                onOpenCreateDialog = onOpenCreateDialog,
+                onOpenBuildHub = onOpenBuildHub
+            )
         }
 
         // 2. Active Document Resume Card (If active document exists)
@@ -337,7 +350,10 @@ fun HomeScreen(
 // -------------------------------------------------------------
 
 @Composable
-private fun HomeTopHeader(onOpenCreateDialog: () -> Unit) {
+private fun HomeTopHeader(
+    onOpenCreateDialog: () -> Unit,
+    onOpenBuildHub: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -398,15 +414,36 @@ private fun HomeTopHeader(onOpenCreateDialog: () -> Unit) {
             }
         }
 
-        Button(
-            onClick = onOpenCreateDialog,
-            colors = ButtonDefaults.buttonColors(containerColor = DocPrimaryCyan),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-            modifier = Modifier.height(34.dp).testTag("home_new_project_button")
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("New Project", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onOpenBuildHub,
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(DocSurfaceCardDark)
+                    .border(1.dp, DocBorderDark, RoundedCornerShape(8.dp))
+                    .testTag("home_github_ci_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Terminal,
+                    contentDescription = "GitHub CI & Build Hub",
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Button(
+                onClick = onOpenCreateDialog,
+                colors = ButtonDefaults.buttonColors(containerColor = DocPrimaryCyan),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.height(34.dp).testTag("home_new_project_button")
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("New Project", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -474,7 +511,7 @@ private fun ActiveDocumentResumeCard(
             ) {
                 Text("Resume", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.width(4.dp))
-                Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
             }
         }
     }
@@ -631,7 +668,7 @@ private fun DocumentRepositoryCard(
                     imageVector = when (document.category) {
                         DocumentCategory.BLUEPRINT.name -> Icons.Default.Layers
                         DocumentCategory.CONTRACT.name -> Icons.Default.Gavel
-                        DocumentCategory.INSPECTION_FORM.name -> Icons.Default.FactCheck
+                        DocumentCategory.INSPECTION_FORM.name -> Icons.AutoMirrored.Filled.FactCheck
                         else -> Icons.Default.Description
                     },
                     contentDescription = null,
