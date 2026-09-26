@@ -18,8 +18,8 @@ on:
 
 jobs:
   build:
-    name: Build Document OS APK
-    runs-on: ubuntu-latest
+    name: Build Docs Z APK
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout Code
@@ -59,10 +59,20 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload Debug APK Artifact
+        if: "${{ github.event.inputs.build_type != 'release' }}"
         uses: actions/upload-artifact@v4
         with:
-          name: DocumentOS-Debug-APK
+          name: DocsZ-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload Release APK Artifact
+        if: "${{ github.event.inputs.build_type == 'release' }}"
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocsZ-Release-APK
+          path: app/build/outputs/apk/release/*.apk
           retention-days: 14
           if-no-files-found: warn
 
