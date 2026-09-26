@@ -1,6 +1,6 @@
 {
-  "name": "Document OS",
-  "description": "Enterprise-grade PDF & CAD document engine with Bluebeam-style measurements, deep markup, forms, digital signatures, and Gemini AI RAG.",
+  "name": "Docs Z",
+  "description": "Smart document scanner, PDF editor, image to PDF maker, compressor, and mobile document OS with Light & Dark themes.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

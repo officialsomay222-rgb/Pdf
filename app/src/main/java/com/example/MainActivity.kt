@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -12,11 +13,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,9 +52,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Handle external PDF opening intent
+        intent?.let { viewModel.handleIncomingIntent(it, this) }
+
         setContent {
-            MyApplicationTheme {
-                val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            val isSystemDark = isSystemInDarkTheme()
+            val isDarkTheme = when (uiState.appThemeMode) {
+                AppThemeMode.LIGHT -> false
+                AppThemeMode.DARK -> true
+                AppThemeMode.SYSTEM -> isSystemDark
+            }
+
+            MyApplicationTheme(darkTheme = isDarkTheme) {
                 val context = LocalContext.current
 
                 // Runtime notification permission request for Android 13+ (TIRAMISU / API 33+)
@@ -82,32 +93,17 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
-                    containerColor = DocNavyDark,
+                    containerColor = MaterialTheme.colorScheme.background,
                     contentWindowInsets = WindowInsets.safeDrawing
                 ) { innerPadding ->
                     when (uiState.currentScreen) {
                         AppScreen.HOME -> {
                             HomeScreen(
                                 uiState = uiState,
+                                viewModel = viewModel,
                                 onOpenDocument = { viewModel.openDocument(it) },
                                 onLaunchWorkflow = { viewModel.launchWorkflow(it) },
                                 onResumeWorkspace = { viewModel.navigateToWorkspace() },
-                                onSearchChange = { viewModel.setSearchQuery(it) },
-                                onCategoryFilterChange = { viewModel.setCategoryFilter(it) },
-                                onOpenCreateDialog = { viewModel.setCreateProjectDialogOpen(true) },
-                                onOpenBuildHub = { viewModel.triggerInAppBuild(context) },
-                                onExportDocument = { doc ->
-                                    viewModel.openDocument(doc)
-                                    viewModel.exportDocument(context)
-                                },
-                                onOpenCompressor = { doc ->
-                                    viewModel.openCompressorForDoc(doc)
-                                },
-                                onDeleteDocument = { viewModel.deleteDocument(it) },
-                                onOpenPdfMaker = { viewModel.setPdfMakerOpen(true) },
-                                onCreatePdfFromImages = { title, bitmaps, filter ->
-                                    viewModel.createPdfFromScannedImages(title, bitmaps, filter, context)
-                                },
                                 modifier = Modifier.padding(innerPadding)
                             )
                         }
@@ -121,7 +117,79 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // Dialogs accessible from both Home and Workspace
+                    // -------------------------------------------------------------
+                    // Global Dialogs & Modals
+                    // -------------------------------------------------------------
+
+                    // 1. ID Card 2-in-1 Scanner Dialog
+                    if (uiState.isIdCardScannerOpen) {
+                        IdCardScannerDialog(
+                            onDismiss = { viewModel.setIdCardScannerOpen(false) },
+                            onCreateIdCard = { title, frontBmp, backBmp ->
+                                viewModel.createIdCardDocument(title, frontBmp, backBmp, context)
+                            }
+                        )
+                    }
+
+                    // 2. Merge Documents Dialog
+                    if (uiState.isMergeDocsDialogOpen) {
+                        MergeDocumentsDialog(
+                            documents = uiState.documents,
+                            onDismiss = { viewModel.setMergeDocsDialogOpen(false) },
+                            onMerge = { docIds, title ->
+                                viewModel.mergeDocuments(docIds, title, context)
+                            }
+                        )
+                    }
+
+                    // 3. Split Document Dialog
+                    if (uiState.isSplitDocDialogOpen && uiState.docToSplit != null) {
+                        SplitDocumentDialog(
+                            document = uiState.docToSplit!!,
+                            onDismiss = { viewModel.setSplitDocDialogOpen(false) },
+                            onSplit = { doc, splitAfter ->
+                                viewModel.splitDocument(doc, splitAfter, context)
+                            }
+                        )
+                    }
+
+                    // 4. Extracted OCR Text Viewer Dialog
+                    if (uiState.isOcrViewerOpen) {
+                        OcrTextViewerDialog(
+                            docTitle = uiState.ocrDocTitle,
+                            extractedText = uiState.extractedOcrText,
+                            onDismiss = { viewModel.setOcrViewerOpen(false) }
+                        )
+                    }
+
+                    // 5. Rename Document Dialog
+                    if (uiState.isRenameDialogOpen && uiState.docToRename != null) {
+                        RenameDocumentDialog(
+                            document = uiState.docToRename!!,
+                            onDismiss = { viewModel.setRenameDialogOpen(false) },
+                            onRename = { newTitle ->
+                                viewModel.renameDocument(uiState.docToRename!!.id, newTitle)
+                            }
+                        )
+                    }
+
+                    // 6. Move to Folder Dialog
+                    if (uiState.isMoveFolderDialogOpen && uiState.docToMove != null) {
+                        MoveToFolderDialog(
+                            document = uiState.docToMove!!,
+                            folders = uiState.foldersList,
+                            onDismiss = { viewModel.setMoveFolderDialogOpen(false) },
+                            onSelectFolder = { folder ->
+                                viewModel.setSelectedFolder(folder)
+                                viewModel.setMoveFolderDialogOpen(false)
+                            },
+                            onCreateFolder = { folderName ->
+                                viewModel.createFolder(folderName)
+                            }
+                        )
+                    }
+
+                    // 7. Image to PDF Studio Dialog
                     if (uiState.isPdfMakerOpen) {
                         PdfMakerStudioDialog(
                             onDismiss = { viewModel.setPdfMakerOpen(false) },
@@ -131,6 +199,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    // 8. PDF Compressor Studio Dialog
                     if (uiState.isCompressorOpen) {
                         val targetDoc = uiState.compressTargetDoc ?: uiState.activeDocument ?: uiState.documents.firstOrNull()
                         if (targetDoc != null) {
@@ -144,6 +213,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // 9. Blank Project / Blueprint Dialog
                     if (uiState.isCreateProjectDialogOpen) {
                         CreateProjectDialog(
                             onDismiss = { viewModel.setCreateProjectDialogOpen(false) },
@@ -153,6 +223,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    // 10. Document Library Dialog
                     if (uiState.isDocLibraryOpen) {
                         DocumentLibraryDialog(
                             documents = uiState.documents,
@@ -165,6 +236,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    // 11. Build Engine Hub Dialog
                     if (uiState.isBuildDialogOpen) {
                         BuildWorkflowDialog(
                             isBuilding = uiState.isBuildingApp,
@@ -178,6 +250,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        viewModel.handleIncomingIntent(intent, this)
     }
 }
 
@@ -197,11 +275,11 @@ fun DocumentOsScreen(
     val currentMeasurements = uiState.measurements[activeDocId] ?: emptyList()
     val currentFields = uiState.formFields[activeDocId] ?: emptyList()
 
-    Box(modifier = modifier.fillMaxSize().background(DocNavyDark)) {
+    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             // 1. Top Enterprise Control Bar with Home Navigation
             TopEnterpriseBar(
-                title = activeDoc?.title ?: "Document OS",
+                title = activeDoc?.title ?: "Docs Z",
                 category = activeTab?.category ?: DocumentCategory.BLUEPRINT,
                 currentPage = (activeTab?.activePageIndex ?: 0) + 1,
                 totalPages = activeTab?.pageCount ?: 1,
@@ -281,7 +359,7 @@ fun DocumentOsScreen(
                     category = activeTab?.category ?: DocumentCategory.BLUEPRINT,
                     pageIndex = activeTab?.activePageIndex ?: 0,
                     pageCount = activeTab?.pageCount ?: 1,
-                    documentTitle = activeDoc?.title ?: "Document OS",
+                    documentTitle = activeDoc?.title ?: "Docs Z",
                     watermarkText = activeDoc?.watermarkText ?: "",
                     zoomLevel = activeTab?.zoomLevel ?: 1.0f,
                     panOffsetX = activeTab?.panOffsetX ?: 0f,
@@ -305,7 +383,7 @@ fun DocumentOsScreen(
                     onFormFieldClick = { viewModel.onFormFieldClick(it) }
                 )
 
-                // 6. CAD Mini-Map Navigator (Floating overlay in bottom-right corner)
+                // 6. CAD Mini-Map Navigator
                 if (uiState.showMiniMap) {
                     CadMiniMap(
                         category = activeTab?.category ?: DocumentCategory.BLUEPRINT,
@@ -328,24 +406,7 @@ fun DocumentOsScreen(
             }
         }
 
-        // 7. Bottom AI Intelligence Copilot Sheet
-        AnimatedVisibility(
-            visible = uiState.toolMode == WorkspaceToolMode.AI_COPILOT,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            AiCopilotSheet(
-                chatMessages = uiState.chatMessages,
-                isAiLoading = uiState.isAiLoading,
-                onSendMessage = { viewModel.sendAiMessage(it) },
-                piiSuggestions = uiState.piiSuggestions,
-                onApplyAutoRedaction = { viewModel.applyAutoRedaction() },
-                onClose = { viewModel.setToolMode(WorkspaceToolMode.VIEW_NAVIGATE) }
-            )
-        }
-
-        // 8. Dialogs
+        // 7. Dialogs in Workspace
         if (uiState.isScaleDialogOpen) {
             ScaleCalibrationDialog(
                 currentScale = uiState.activeScale,
@@ -415,8 +476,8 @@ private fun TopEnterpriseBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(DocSurfaceDark)
-            .border(width = 0.5.dp, color = DocBorderDark)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(width = 0.5.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
             .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -431,13 +492,13 @@ private fun TopEnterpriseBar(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .background(DocSurfaceCardDark)
+                    .background(CamScannerTeal.copy(alpha = 0.15f))
                     .testTag("nav_home_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.Home,
                     contentDescription = "Back to Home",
-                    tint = DocPrimaryCyan,
+                    tint = CamScannerTeal,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -447,7 +508,7 @@ private fun TopEnterpriseBar(
             Column {
                 Text(
                     text = title,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -456,7 +517,7 @@ private fun TopEnterpriseBar(
                 )
                 Text(
                     text = category.name.replace("_", " "),
-                    color = DocPrimaryCyanLight,
+                    color = CamScannerTeal,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -468,8 +529,8 @@ private fun TopEnterpriseBar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
-                .background(DocSurfaceCardDark)
-                .border(0.5.dp, DocBorderDark, RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
                 .padding(horizontal = 4.dp, vertical = 2.dp)
         ) {
             IconButton(
@@ -480,14 +541,14 @@ private fun TopEnterpriseBar(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Previous Page",
-                    tint = if (currentPage > 1) Color.White else Color(0xFF64748B),
+                    tint = if (currentPage > 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                     modifier = Modifier.size(14.dp)
                 )
             }
 
             Text(
                 text = "$currentPage / $totalPages",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
@@ -504,7 +565,7 @@ private fun TopEnterpriseBar(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = "Next Page",
-                    tint = if (currentPage < totalPages) Color.White else Color(0xFF64748B),
+                    tint = if (currentPage < totalPages) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                     modifier = Modifier.size(14.dp)
                 )
             }

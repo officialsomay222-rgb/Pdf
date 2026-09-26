@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Document OS"
+rootProject.name = "Docs Z"
 
 include(":app")

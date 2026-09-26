@@ -12,15 +12,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-  primary = DocPrimaryCyanLight,
+  primary = CamScannerTealLight,
   onPrimary = DocNavyDark,
-  primaryContainer = Color(0xFF0C4A6E),
-  onPrimaryContainer = Color(0xFFBAE6FD),
+  primaryContainer = CamScannerTealDark,
+  onPrimaryContainer = Color(0xFF99F6E4),
   secondary = DocSecondaryIndigo,
   onSecondary = Color.White,
-  secondaryContainer = Color(0xFF312E81),
+  secondaryContainer = Color(0xFF1E293B),
   onSecondaryContainer = Color(0xFFE0E7FF),
-  tertiary = DocAccentAmber,
+  tertiary = CamScannerGold,
   background = DocNavyDark,
   onBackground = DocTextPrimaryDark,
   surface = DocSurfaceDark,
@@ -31,15 +31,15 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-  primary = DocPrimaryCyan,
+  primary = CamScannerTeal,
   onPrimary = Color.White,
-  primaryContainer = Color(0xFFE0F2FE),
-  onPrimaryContainer = Color(0xFF0369A1),
+  primaryContainer = Color(0xFFCCFBF1),
+  onPrimaryContainer = Color(0xFF0F766E),
   secondary = DocSecondaryIndigo,
   onSecondary = Color.White,
-  secondaryContainer = Color(0xFFEEF2FF),
-  onSecondaryContainer = Color(0xFF3730A3),
-  tertiary = DocAccentAmber,
+  secondaryContainer = Color(0xFFF1F5F9),
+  onSecondaryContainer = Color(0xFF334155),
+  tertiary = CamScannerGold,
   background = DocBgLight,
   onBackground = DocTextPrimaryLight,
   surface = DocSurfaceLight,
@@ -51,7 +51,7 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun MyApplicationTheme(
-  darkTheme: Boolean = true, // Default to sleek high-tech engineering dark theme
+  darkTheme: Boolean = isSystemInDarkTheme(),
   dynamicColor: Boolean = false,
   content: @Composable () -> Unit,
 ) {
@@ -70,3 +70,4 @@ fun MyApplicationTheme(
     content = content
   )
 }
+

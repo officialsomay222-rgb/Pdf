@@ -4,12 +4,44 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import java.util.UUID
 
+enum class AppThemeMode {
+    SYSTEM,
+    LIGHT,
+    DARK
+}
+
+enum class DocViewMode {
+    LIST,
+    GRID
+}
+
+enum class DocSortOption(val displayName: String) {
+    DATE_DESC("Newest First"),
+    DATE_ASC("Oldest First"),
+    NAME_ASC("Title (A-Z)"),
+    NAME_DESC("Title (Z-A)"),
+    SIZE_DESC("File Size (Largest)")
+}
+
+enum class CamScannerNavTab(val label: String) {
+    DOCS("Docs"),
+    TOOLS("Tools"),
+    SCAN("Scan"),
+    FOLDERS("Folders"),
+    SETTINGS("Settings")
+}
+
 enum class DocumentCategory {
     BLUEPRINT,
     CONTRACT,
     INSPECTION_FORM,
     SPECIFICATION,
-    BLANK
+    BLANK,
+    ID_CARD,
+    RECEIPT,
+    NOTES,
+    BOOK,
+    CERTIFICATE
 }
 
 enum class NavigationMode {

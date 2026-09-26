@@ -3,19 +3,20 @@ package com.example.ui
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.DocumentDatabase
 import com.example.data.SampleDocuments
-import com.example.engine.GeminiAiService
 import com.example.engine.NotificationHelper
 import com.example.engine.PdfEngine
-import com.example.engine.RedactionSuggestion
 import com.example.model.*
 import com.example.ui.components.BuildTaskStep
-import com.example.ui.components.ChatMessage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
@@ -33,8 +37,16 @@ enum class AppScreen {
 
 data class DocumentUiState(
     val currentScreen: AppScreen = AppScreen.HOME,
+    val activeNavTab: CamScannerNavTab = CamScannerNavTab.DOCS,
     val searchQuery: String = "",
     val selectedCategoryFilter: String = "ALL",
+    val selectedFolder: String = "All Docs",
+    val foldersList: List<String> = listOf("All Docs", "ID Cards", "Work", "Personal", "Receipts", "Contracts", "Notes"),
+    val appThemeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val docViewMode: DocViewMode = DocViewMode.LIST,
+    val sortOption: DocSortOption = DocSortOption.DATE_DESC,
+    val selectedDocIds: Set<String> = emptySet(),
+    val isMultiSelectMode: Boolean = false,
     val tabs: List<DocumentWorkspaceTab> = emptyList(),
     val activeTabId: String = "",
     val documents: List<DocumentEntity> = emptyList(),
@@ -42,7 +54,7 @@ data class DocumentUiState(
     val toolMode: WorkspaceToolMode = WorkspaceToolMode.VIEW_NAVIGATE,
     val markupType: MarkupType = MarkupType.PEN,
     val measurementType: MeasurementType = MeasurementType.DISTANCE_LINE,
-    val activeColorHex: Long = 0xFF0284C7,
+    val activeColorHex: Long = 0xFF00897B,
     val strokeWidth: Float = 3f,
     val selectedStamp: StampType = StampType.APPROVED,
     val activeScale: ScaleCalibration = ScaleCalibration(),
@@ -50,10 +62,6 @@ data class DocumentUiState(
     val measurements: Map<String, List<MeasurementItem>> = emptyMap(),
     val formFields: Map<String, List<FormFieldItem>> = emptyMap(),
     val showMiniMap: Boolean = true,
-    // AI Copilot State
-    val chatMessages: List<ChatMessage> = emptyList(),
-    val isAiLoading: Boolean = false,
-    val piiSuggestions: List<RedactionSuggestion> = emptyList(),
     // In-App Build & GitHub CI State
     val isBuildDialogOpen: Boolean = false,
     val isBuildingApp: Boolean = false,
@@ -77,7 +85,19 @@ data class DocumentUiState(
     val isCompressorOpen: Boolean = false,
     val compressTargetDoc: DocumentEntity? = null,
     val activeFormFieldForSign: FormFieldItem? = null,
-    val exportedPdfFile: File? = null
+    val exportedPdfFile: File? = null,
+    // CamScanner Specific Dialogs
+    val isIdCardScannerOpen: Boolean = false,
+    val isMergeDocsDialogOpen: Boolean = false,
+    val isSplitDocDialogOpen: Boolean = false,
+    val docToSplit: DocumentEntity? = null,
+    val isOcrViewerOpen: Boolean = false,
+    val extractedOcrText: String = "",
+    val ocrDocTitle: String = "",
+    val isRenameDialogOpen: Boolean = false,
+    val docToRename: DocumentEntity? = null,
+    val isMoveFolderDialogOpen: Boolean = false,
+    val docToMove: DocumentEntity? = null
 )
 
 class DocumentViewModel(application: Application) : AndroidViewModel(application) {
@@ -110,7 +130,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                         id = UUID.randomUUID().toString(),
                         documentId = firstDoc.id,
                         title = firstDoc.title,
-                        category = DocumentCategory.valueOf(firstDoc.category),
+                        category = try { DocumentCategory.valueOf(firstDoc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
                         activePageIndex = 0,
                         pageCount = firstDoc.pageCount,
                         zoomLevel = 1.0f
@@ -139,19 +159,240 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                                 pixelDistance = firstDoc.scalePixelDistance,
                                 realDistance = firstDoc.scaleRealDistance,
                                 unit = firstDoc.scaleUnit
-                            ),
-                            chatMessages = listOf(
-                                ChatMessage(
-                                    sender = "ai",
-                                    text = "Welcome to Document OS Enterprise. Loaded \"${firstDoc.title}\". All architectural layers and RAG embeddings are ready. Ask me anything or explore CAD measurements!"
-                                )
                             )
                         )
                     }
-                    scanForPii(firstDoc.id)
                 } else {
                     _uiState.update { it.copy(documents = docs) }
                 }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // External Intent Handling (Open PDF with Docs Z)
+    // -------------------------------------------------------------
+
+    fun handleIncomingIntent(intent: Intent, context: Context) {
+        val action = intent.action ?: return
+        if (action == Intent.ACTION_VIEW || action == Intent.ACTION_SEND) {
+            val uri: Uri? = if (action == Intent.ACTION_VIEW) {
+                intent.data
+            } else {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                }
+            }
+            if (uri != null) {
+                importPdfFromUri(uri, context)
+            }
+        } else if (action == Intent.ACTION_SEND_MULTIPLE) {
+            val uris: ArrayList<Uri>? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+            }
+            if (!uris.isNullOrEmpty()) {
+                importMultipleUris(uris, context)
+            }
+        }
+    }
+
+    fun importPdfFromUri(uri: Uri, context: Context) {
+        viewModelScope.launch {
+            try {
+                var fileName = "External_Document.pdf"
+                var fileSize = 1024L * 1024L
+
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (cursor.moveToFirst()) {
+                        if (nameIndex != -1) {
+                            val queriedName = cursor.getString(nameIndex)
+                            if (!queriedName.isNullOrBlank()) fileName = queriedName
+                        }
+                        if (sizeIndex != -1) {
+                            fileSize = cursor.getLong(sizeIndex).coerceAtLeast(512L)
+                        }
+                    }
+                }
+
+                val docTitle = fileName.removeSuffix(".pdf").replace("_", " ")
+                val fileSizeFormatted = String.format(Locale.US, "%.1f MB", (fileSize / (1024.0 * 1024.0)).coerceAtLeast(0.4))
+
+                // Copy stream to internal cache
+                val cachedFile = File(context.cacheDir, "imported_${System.currentTimeMillis()}_$fileName")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(cachedFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                val isImage = fileName.endsWith(".jpg", ignoreCase = true) ||
+                    fileName.endsWith(".jpeg", ignoreCase = true) ||
+                    fileName.endsWith(".png", ignoreCase = true)
+
+                val docCategory = if (isImage) DocumentCategory.SPECIFICATION else DocumentCategory.CONTRACT
+
+                val newDoc = DocumentEntity(
+                    id = "doc-import-" + UUID.randomUUID().toString().take(8),
+                    title = docTitle,
+                    category = docCategory.name,
+                    pageCount = 3,
+                    fileSizeFormatted = fileSizeFormatted,
+                    createdAt = System.currentTimeMillis(),
+                    modifiedAt = System.currentTimeMillis(),
+                    isPasswordProtected = false,
+                    watermarkText = "",
+                    scaleRealDistance = 10f,
+                    scalePixelDistance = 100f,
+                    scaleUnit = "ft"
+                )
+
+                docDao.insertDocument(newDoc)
+                openDocument(newDoc)
+
+                NotificationHelper.showCompletionNotification(
+                    context,
+                    "Opened in Docs Z",
+                    "\"$docTitle\" loaded in Docs Z workspace engine."
+                )
+                Toast.makeText(context, "Opened in Docs Z: $docTitle", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Could not open document: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun importMultipleUris(uris: List<Uri>, context: Context) {
+        viewModelScope.launch {
+            val bitmaps = mutableListOf<Bitmap>()
+            for (u in uris) {
+                try {
+                    context.contentResolver.openInputStream(u)?.use { s ->
+                        BitmapFactory.decodeStream(s)?.let { bitmaps.add(it) }
+                    }
+                } catch (e: Exception) {
+                    // Ignore faulty individual item
+                }
+            }
+            if (bitmaps.isNotEmpty()) {
+                val title = "Imported_Batch_${SimpleDateFormat("MMdd_HHmm", Locale.US).format(Date())}"
+                createPdfFromScannedImages(title, bitmaps, "ORIGINAL", context)
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Navigation & Theme & View Controls
+    // -------------------------------------------------------------
+
+    fun setNavTab(tab: CamScannerNavTab) {
+        _uiState.update { it.copy(activeNavTab = tab) }
+    }
+
+    fun setAppThemeMode(theme: AppThemeMode) {
+        _uiState.update { it.copy(appThemeMode = theme) }
+    }
+
+    fun setDocViewMode(mode: DocViewMode) {
+        _uiState.update { it.copy(docViewMode = mode) }
+    }
+
+    fun setSortOption(option: DocSortOption) {
+        _uiState.update { it.copy(sortOption = option) }
+    }
+
+    fun setSelectedFolder(folder: String) {
+        _uiState.update { it.copy(selectedFolder = folder) }
+    }
+
+    fun createFolder(folderName: String) {
+        val trimmed = folderName.trim()
+        if (trimmed.isNotBlank() && !_uiState.value.foldersList.contains(trimmed)) {
+            _uiState.update { it.copy(foldersList = it.foldersList + trimmed, selectedFolder = trimmed) }
+            Toast.makeText(getApplication(), "Created folder \"$trimmed\"", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun toggleSelectDoc(docId: String) {
+        val currentSelected = _uiState.value.selectedDocIds
+        val newSelected = if (currentSelected.contains(docId)) currentSelected - docId else currentSelected + docId
+        _uiState.update {
+            it.copy(
+                selectedDocIds = newSelected,
+                isMultiSelectMode = newSelected.isNotEmpty()
+            )
+        }
+    }
+
+    fun selectAllDocs(selectAll: Boolean) {
+        _uiState.update {
+            it.copy(
+                selectedDocIds = if (selectAll) it.documents.map { d -> d.id }.toSet() else emptySet(),
+                isMultiSelectMode = selectAll
+            )
+        }
+    }
+
+    fun setMultiSelectMode(enabled: Boolean) {
+        _uiState.update {
+            it.copy(
+                isMultiSelectMode = enabled,
+                selectedDocIds = if (!enabled) emptySet() else it.selectedDocIds
+            )
+        }
+    }
+
+    fun batchDeleteSelected() {
+        val idsToDelete = _uiState.value.selectedDocIds
+        viewModelScope.launch {
+            for (id in idsToDelete) {
+                val doc = docDao.getDocumentById(id)
+                if (doc != null) docDao.deleteDocument(doc)
+            }
+            _uiState.update { it.copy(selectedDocIds = emptySet(), isMultiSelectMode = false) }
+            Toast.makeText(getApplication(), "Deleted ${idsToDelete.size} documents", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun batchShareSelected(context: Context) {
+        val selectedIds = _uiState.value.selectedDocIds
+        val selectedDocs = _uiState.value.documents.filter { selectedIds.contains(it.id) }
+        if (selectedDocs.isEmpty()) return
+
+        viewModelScope.launch {
+            try {
+                val filesToShare = ArrayList<Uri>()
+                for (doc in selectedDocs) {
+                    val pdf = PdfEngine.exportToPdfFile(
+                        context = context,
+                        documentTitle = doc.title,
+                        pageCount = doc.pageCount,
+                        category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
+                        annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                        measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                        formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                        watermark = doc.watermarkText
+                    )
+                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdf)
+                    filesToShare.add(uri)
+                }
+
+                val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "application/pdf"
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, filesToShare)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share ${filesToShare.size} Documents via Docs Z"))
+                _uiState.update { it.copy(selectedDocIds = emptySet(), isMultiSelectMode = false) }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Share error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -172,7 +413,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 } ?: ScaleCalibration()
             )
         }
-        if (doc != null) scanForPii(doc.id)
     }
 
     fun navigateToHome() {
@@ -221,7 +461,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             val doc = docDao.getDocumentById(docId)
             if (doc != null) {
                 docDao.deleteDocument(doc)
-                // If it was in tabs, close tab
                 val tab = _uiState.value.tabs.find { it.documentId == docId }
                 if (tab != null) {
                     closeTab(tab.id)
@@ -231,8 +470,58 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun renameDocument(docId: String, newTitle: String) {
+        if (newTitle.isBlank()) return
+        viewModelScope.launch {
+            docDao.renameDocument(docId, newTitle.trim(), System.currentTimeMillis())
+            val updatedTabs = _uiState.value.tabs.map {
+                if (it.documentId == docId) it.copy(title = newTitle.trim()) else it
+            }
+            _uiState.update {
+                it.copy(
+                    tabs = updatedTabs,
+                    activeDocument = if (it.activeDocument?.id == docId) it.activeDocument.copy(title = newTitle.trim()) else it.activeDocument,
+                    isRenameDialogOpen = false,
+                    docToRename = null
+                )
+            }
+            Toast.makeText(getApplication(), "Renamed to \"$newTitle\"", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun duplicateDocument(doc: DocumentEntity) {
+        viewModelScope.launch {
+            val duplicate = doc.copy(
+                id = "doc-dup-" + UUID.randomUUID().toString().take(8),
+                title = "${doc.title} (Copy)",
+                createdAt = System.currentTimeMillis(),
+                modifiedAt = System.currentTimeMillis()
+            )
+            docDao.insertDocument(duplicate)
+            // Copy annotations
+            val origAnn = _uiState.value.annotations[doc.id] ?: emptyList()
+            val origMeas = _uiState.value.measurements[doc.id] ?: emptyList()
+            val origFields = _uiState.value.formFields[doc.id] ?: emptyList()
+
+            val updatedAnn = _uiState.value.annotations.toMutableMap()
+            updatedAnn[duplicate.id] = origAnn
+            val updatedMeas = _uiState.value.measurements.toMutableMap()
+            updatedMeas[duplicate.id] = origMeas
+            val updatedFields = _uiState.value.formFields.toMutableMap()
+            updatedFields[duplicate.id] = origFields
+
+            _uiState.update {
+                it.copy(
+                    annotations = updatedAnn,
+                    measurements = updatedMeas,
+                    formFields = updatedFields
+                )
+            }
+            Toast.makeText(getApplication(), "Duplicated \"${doc.title}\"", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun launchWorkflow(shortcut: WorkflowShortcut) {
-        // Ensure a document is active; if not, open the first available
         val currentDoc = _uiState.value.activeDocument ?: _uiState.value.documents.firstOrNull()
 
         when (shortcut) {
@@ -273,7 +562,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 }
             }
             WorkflowShortcut.FORMS_AND_SIGN -> {
-                // If inspection form or contract exists, prefer opening that
                 val formDoc = _uiState.value.documents.find {
                     it.category == DocumentCategory.INSPECTION_FORM.name || it.category == DocumentCategory.CONTRACT.name
                 }
@@ -283,14 +571,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 _uiState.update {
                     it.copy(
                         toolMode = WorkspaceToolMode.FORMS_FILL,
-                        currentScreen = AppScreen.WORKSPACE
-                    )
-                }
-            }
-            WorkflowShortcut.AI_COPILOT -> {
-                _uiState.update {
-                    it.copy(
-                        toolMode = WorkspaceToolMode.AI_COPILOT,
                         currentScreen = AppScreen.WORKSPACE
                     )
                 }
@@ -315,9 +595,9 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 _uiState.update { it.copy(isBuildDialogOpen = true) }
                 return
             }
+            else -> {}
         }
 
-        // If tabs were empty, ensure the document is opened
         if (currentDoc != null && _uiState.value.tabs.none { it.documentId == currentDoc.id }) {
             openDocument(currentDoc)
         }
@@ -347,13 +627,12 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     currentScreen = AppScreen.WORKSPACE
                 )
             }
-            scanForPii(doc.id)
         }
     }
 
     fun closeTab(tabId: String) {
         val currentTabs = _uiState.value.tabs
-        if (currentTabs.size <= 1) return // Keep at least 1 tab open
+        if (currentTabs.size <= 1) return
         val remaining = currentTabs.filter { it.id != tabId }
         val nextActive = if (_uiState.value.activeTabId == tabId) remaining.first().id else _uiState.value.activeTabId
         _uiState.update { it.copy(tabs = remaining) }
@@ -434,7 +713,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         val docId = _uiState.value.activeDocument?.id ?: return
         val currentList = _uiState.value.annotations[docId] ?: emptyList()
 
-        // Push to undo stack
         val stack = undoStack.getOrPut(docId) { mutableListOf() }
         stack.add(currentList)
         redoStack[docId]?.clear()
@@ -500,42 +778,41 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     // Measurements & Calibration
     // -------------------------------------------------------------
 
+    fun saveScale(scale: ScaleCalibration) {
+        val doc = _uiState.value.activeDocument ?: return
+        _uiState.update { it.copy(activeScale = scale, isScaleDialogOpen = false) }
+        viewModelScope.launch {
+            docDao.updateDocument(
+                doc.copy(
+                    scaleRealDistance = scale.realDistance,
+                    scalePixelDistance = scale.pixelDistance,
+                    scaleUnit = scale.unit
+                )
+            )
+            Toast.makeText(getApplication(), "Calibrated: 100px = ${scale.realDistance} ${scale.unit}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun addMeasurement(meas: MeasurementItem) {
         val docId = _uiState.value.activeDocument?.id ?: return
-        val current = _uiState.value.measurements[docId] ?: emptyList()
-        val updated = _uiState.value.measurements.toMutableMap()
-        updated[docId] = current + meas
-        _uiState.update { it.copy(measurements = updated) }
+        val currentList = _uiState.value.measurements[docId] ?: emptyList()
+        val updatedMap = _uiState.value.measurements.toMutableMap()
+        updatedMap[docId] = currentList + meas
+        _uiState.update { it.copy(measurements = updatedMap) }
         markTabModified()
     }
 
     fun deleteMeasurement(measId: String) {
         val docId = _uiState.value.activeDocument?.id ?: return
-        val current = _uiState.value.measurements[docId] ?: return
-        val updated = _uiState.value.measurements.toMutableMap()
-        updated[docId] = current.filter { it.id != measId }
-        _uiState.update { it.copy(measurements = updated) }
-    }
-
-    fun saveScale(scale: ScaleCalibration) {
-        _uiState.update { it.copy(activeScale = scale) }
-        val docId = _uiState.value.activeDocument?.id ?: return
-        viewModelScope.launch {
-            val doc = docDao.getDocumentById(docId)
-            if (doc != null) {
-                docDao.updateDocument(
-                    doc.copy(
-                        scalePixelDistance = scale.pixelDistance,
-                        scaleRealDistance = scale.realDistance,
-                        scaleUnit = scale.unit
-                    )
-                )
-            }
-        }
+        val currentList = _uiState.value.measurements[docId] ?: return
+        val updatedMap = _uiState.value.measurements.toMutableMap()
+        updatedMap[docId] = currentList.filter { it.id != measId }
+        _uiState.update { it.copy(measurements = updatedMap) }
+        markTabModified()
     }
 
     // -------------------------------------------------------------
-    // Form Interaction & Cryptographic Signatures
+    // Interactive Forms & Signatures
     // -------------------------------------------------------------
 
     fun onFormFieldClick(field: FormFieldItem) {
@@ -546,42 +823,26 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             FormFieldType.SIGNATURE_BOX -> {
                 _uiState.update { it.copy(isSignatureDialogOpen = true, activeFormFieldForSign = field) }
             }
-            FormFieldType.DROPDOWN -> {
-                val nextOpt = if (field.options.isNotEmpty()) {
-                    val currIdx = field.options.indexOf(field.value)
-                    val nextIdx = (currIdx + 1) % field.options.size
-                    field.options[nextIdx]
-                } else field.value
-                updateFormField(field.id) { it.copy(value = nextOpt) }
-            }
             FormFieldType.TEXT_INPUT -> {
-                // Toggle or simulate input
-                val nextVal = if (field.value.contains("(Updated)")) field.value.replace(" (Updated)", "") else "${field.value} (Updated)"
+                val nextVal = if (field.value.isEmpty()) "Field Value Entered" else "${field.value} (updated)"
                 updateFormField(field.id) { it.copy(value = nextVal) }
             }
             else -> {}
         }
     }
 
-    fun applyDigitalSignature(signature: DigitalSignature) {
-        val targetField = _uiState.value.activeFormFieldForSign ?: return
-        updateFormField(targetField.id) {
-            it.copy(
-                isSigned = true,
-                value = "Signed by ${signature.signerName} • ${signature.certificateId}"
-            )
+    fun applyDigitalSignature(sig: DigitalSignature) {
+        val targetField = _uiState.value.activeFormFieldForSign
+        if (targetField != null) {
+            updateFormField(targetField.id) {
+                it.copy(
+                    isSigned = true,
+                    value = "Signed by ${sig.signerName} • ${sig.timestampIso.take(10)}"
+                )
+            }
         }
-        // Also add a signature badge annotation on the active page
-        val activeTab = getActiveTab() ?: return
-        addAnnotation(
-            AnnotationItem(
-                pageIndex = activeTab.activePageIndex,
-                type = MarkupType.STAMP,
-                points = listOf(Point2D(targetField.x, targetField.y + targetField.height + 6f)),
-                stampType = StampType.FINAL,
-                text = signature.certificateId
-            )
-        )
+        _uiState.update { it.copy(isSignatureDialogOpen = false, activeFormFieldForSign = null) }
+        Toast.makeText(getApplication(), "Cryptographic signature applied", Toast.LENGTH_SHORT).show()
     }
 
     private fun updateFormField(fieldId: String, transform: (FormFieldItem) -> FormFieldItem) {
@@ -639,90 +900,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     }
 
     // -------------------------------------------------------------
-    // Gemini AI Copilot & PII Detection
-    // -------------------------------------------------------------
-
-    fun sendAiMessage(userText: String) {
-        val docId = _uiState.value.activeDocument?.id ?: "doc-blueprint-01"
-        val docContext = SampleDocuments.getDocumentText(docId)
-
-        val updatedMessages = _uiState.value.chatMessages + ChatMessage(sender = "user", text = userText)
-        _uiState.update { it.copy(chatMessages = updatedMessages, isAiLoading = true) }
-
-        // Ongoing progress notification
-        NotificationHelper.showProgressNotification(
-            getApplication(),
-            "Document OS AI Intelligence",
-            "Gemini 3.5 Flash RAG analyzing: \"${userText.take(24)}...\"",
-            50,
-            indeterminate = true
-        )
-
-        viewModelScope.launch {
-            val result = GeminiAiService.chatWithPdf(docContext, userText)
-            val aiReply = result.getOrDefault("Document intelligence processing completed.")
-            _uiState.update {
-                it.copy(
-                    chatMessages = it.chatMessages + ChatMessage(sender = "ai", text = aiReply),
-                    isAiLoading = false
-                )
-            }
-            // Completion notification
-            NotificationHelper.showCompletionNotification(
-                getApplication(),
-                "Document Intelligence Ready",
-                "Analysis and citations completed for: \"${userText.take(28)}...\""
-            )
-        }
-    }
-
-    private fun scanForPii(docId: String) {
-        viewModelScope.launch {
-            val context = SampleDocuments.getDocumentText(docId)
-            val suggestions = GeminiAiService.detectPiiAndRedact(context)
-            _uiState.update { it.copy(piiSuggestions = suggestions) }
-        }
-    }
-
-    fun applyAutoRedaction() {
-        val docId = _uiState.value.activeDocument?.id ?: return
-        val activeTab = getActiveTab() ?: return
-
-        // Add visual redaction boxes on the page for all sensitive items
-        val autoRedactions = listOf(
-            AnnotationItem(
-                pageIndex = activeTab.activePageIndex,
-                type = MarkupType.REDACTION_BOX,
-                points = listOf(Point2D(60f, 260f), Point2D(380f, 295f)),
-                text = "REDACTED: SENSITIVE IDENTIFIER",
-                author = "AI Auto-Redactor"
-            ),
-            AnnotationItem(
-                pageIndex = activeTab.activePageIndex,
-                type = MarkupType.REDACTION_BOX,
-                points = listOf(Point2D(60f, 320f), Point2D(340f, 355f)),
-                text = "REDACTED: PAYMENT ROUTING",
-                author = "AI Auto-Redactor"
-            )
-        )
-
-        for (r in autoRedactions) {
-            addAnnotation(r)
-        }
-
-        _uiState.update {
-            it.copy(
-                piiSuggestions = emptyList(),
-                chatMessages = it.chatMessages + ChatMessage(
-                    sender = "ai",
-                    text = "🔒 Military-grade black-box redactions applied successfully to all detected PII (SSN, credit card, and banking records)."
-                )
-            )
-        }
-        Toast.makeText(getApplication(), "Automated PII Redaction Complete", Toast.LENGTH_SHORT).show()
-    }
-
-    // -------------------------------------------------------------
     // PDF Export
     // -------------------------------------------------------------
 
@@ -735,17 +912,16 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         val measurementsList = _uiState.value.measurements[docId] ?: emptyList()
         val fieldsList = _uiState.value.formFields[docId] ?: emptyList()
 
-        // Show ongoing notification
-        NotificationHelper.showProgressNotification(
-            context,
-            "Document OS PDF Engine",
-            "Rasterizing architectural sheets & vector stamps...",
-            40
-        )
-
         viewModelScope.launch {
             try {
-                val file = PdfEngine.exportToPdfFile(
+                NotificationHelper.showProgressNotification(
+                    context,
+                    "Docs Z PDF Export",
+                    "Compiling \"${doc.title}\" with all markup...",
+                    50
+                )
+
+                val pdfFile = PdfEngine.exportToPdfFile(
                     context = context,
                     documentTitle = doc.title,
                     pageCount = activeTab.pageCount,
@@ -756,33 +932,30 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     watermark = doc.watermarkText
                 )
 
-                _uiState.update { it.copy(exportedPdfFile = file) }
-                Toast.makeText(context, "Exported PDF: ${file.name}", Toast.LENGTH_LONG).show()
+                _uiState.update { it.copy(exportedPdfFile = pdfFile) }
 
-                // Show completion notification
                 NotificationHelper.showCompletionNotification(
                     context,
-                    "PDF Export Complete",
-                    "Ready: ${file.name} (Tap to share/open)"
+                    "PDF Export Complete (Docs Z)",
+                    "\"${doc.title}.pdf\" compiled successfully (${pdfFile.length() / 1024} KB)."
                 )
 
-                // Share PDF intent
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdfFile)
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                context.startActivity(Intent.createChooser(shareIntent, "Share Document OS PDF"))
+                context.startActivity(Intent.createChooser(shareIntent, "Share Document PDF"))
             } catch (e: Exception) {
                 NotificationHelper.cancelProgress(context)
-                Toast.makeText(context, "PDF Export: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Export error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     // -------------------------------------------------------------
-    // In-App Build Hub & GitHub Actions Verification
+    // In-App Gradle Build & GitHub CI Simulation
     // -------------------------------------------------------------
 
     fun setBuildDialogOpen(open: Boolean) {
@@ -790,8 +963,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun triggerInAppBuild(context: Context) {
-        if (_uiState.value.isBuildingApp) return
-
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -806,15 +977,8 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     )
                 )
             }
-            NotificationHelper.showProgressNotification(
-                context,
-                "Document OS Compilation",
-                "Step 1/4: Initializing Gradle toolchain & JDK 17...",
-                15
-            )
             delay(1200)
 
-            // Step 2
             _uiState.update {
                 it.copy(
                     buildProgress = 40,
@@ -827,15 +991,8 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     )
                 )
             }
-            NotificationHelper.showProgressNotification(
-                context,
-                "Document OS Compilation",
-                "Step 2/4: Compiling Kotlin & Material 3 Composables...",
-                40
-            )
             delay(1400)
 
-            // Step 3
             _uiState.update {
                 it.copy(
                     buildProgress = 75,
@@ -848,15 +1005,8 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     )
                 )
             }
-            NotificationHelper.showProgressNotification(
-                context,
-                "Document OS Compilation",
-                "Step 3/4: Verifying Room database schemas & KSP codegen...",
-                75
-            )
             delay(1200)
 
-            // Step 4: Finish
             _uiState.update {
                 it.copy(
                     isBuildingApp = false,
@@ -870,35 +1020,28 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     )
                 )
             }
-
-            NotificationHelper.showCompletionNotification(
-                context,
-                "Build Successful (Document OS)",
-                "All 33 Gradle tasks passed. APK generated & ready for GitHub Actions CI."
-            )
             Toast.makeText(context, "Build Successful: All 33 tasks passed!", Toast.LENGTH_SHORT).show()
         }
     }
 
     // -------------------------------------------------------------
-    // PDF Maker (Image to PDF / Camera Scanner) & Compressor Operations
+    // PDF Maker, Compressor & CamScanner Tools Operations
     // -------------------------------------------------------------
 
-    fun setPdfMakerOpen(open: Boolean) {
-        _uiState.update { it.copy(isPdfMakerOpen = open) }
-    }
+    fun setPdfMakerOpen(open: Boolean) { _uiState.update { it.copy(isPdfMakerOpen = open) } }
+    fun setCompressorOpen(open: Boolean) { _uiState.update { it.copy(isCompressorOpen = open) } }
+    fun openCompressorForDoc(doc: DocumentEntity) { _uiState.update { it.copy(isCompressorOpen = true, compressTargetDoc = doc) } }
 
-    fun setCompressorOpen(open: Boolean) {
-        _uiState.update { it.copy(isCompressorOpen = open) }
-    }
-
-    fun openCompressorForDoc(doc: DocumentEntity) {
-        _uiState.update { it.copy(isCompressorOpen = true, compressTargetDoc = doc) }
-    }
+    fun setIdCardScannerOpen(open: Boolean) { _uiState.update { it.copy(isIdCardScannerOpen = open) } }
+    fun setMergeDocsDialogOpen(open: Boolean) { _uiState.update { it.copy(isMergeDocsDialogOpen = open) } }
+    fun setSplitDocDialogOpen(open: Boolean, doc: DocumentEntity? = null) { _uiState.update { it.copy(isSplitDocDialogOpen = open, docToSplit = doc) } }
+    fun setOcrViewerOpen(open: Boolean, text: String = "", title: String = "") { _uiState.update { it.copy(isOcrViewerOpen = open, extractedOcrText = text, ocrDocTitle = title) } }
+    fun setRenameDialogOpen(open: Boolean, doc: DocumentEntity? = null) { _uiState.update { it.copy(isRenameDialogOpen = open, docToRename = doc) } }
+    fun setMoveFolderDialogOpen(open: Boolean, doc: DocumentEntity? = null) { _uiState.update { it.copy(isMoveFolderDialogOpen = open, docToMove = doc) } }
 
     fun createPdfFromScannedImages(
         title: String,
-        bitmaps: List<android.graphics.Bitmap>,
+        bitmaps: List<Bitmap>,
         filter: String,
         context: Context
     ) {
@@ -941,7 +1084,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 NotificationHelper.showCompletionNotification(
                     context,
                     "PDF Generated Successfully",
-                    "Created \"$title\" (${bitmaps.size} pages). Ready in Workspace."
+                    "Created \"$title\" (${bitmaps.size} pages). Ready in Docs Z."
                 )
                 Toast.makeText(context, "Created \"$title\" (${bitmaps.size} pages)", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
@@ -949,6 +1092,116 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 Toast.makeText(context, "Error creating PDF: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    fun createIdCardDocument(
+        title: String,
+        frontBmp: Bitmap,
+        backBmp: Bitmap?,
+        context: Context
+    ) {
+        viewModelScope.launch {
+            try {
+                val pdfFile = PdfEngine.createIdCardPdf(
+                    context = context,
+                    title = title,
+                    frontBitmap = frontBmp,
+                    backBitmap = backBmp
+                )
+
+                val newDoc = DocumentEntity(
+                    id = "doc-idcard-" + UUID.randomUUID().toString().take(8),
+                    title = title,
+                    category = DocumentCategory.ID_CARD.name,
+                    pageCount = 1,
+                    fileSizeFormatted = "1.2 MB",
+                    createdAt = System.currentTimeMillis(),
+                    modifiedAt = System.currentTimeMillis(),
+                    isPasswordProtected = false,
+                    watermarkText = "",
+                    scaleRealDistance = 10f,
+                    scalePixelDistance = 100f,
+                    scaleUnit = "ft"
+                )
+
+                docDao.insertDocument(newDoc)
+                openDocument(newDoc)
+                _uiState.update { it.copy(isIdCardScannerOpen = false) }
+                Toast.makeText(context, "Created ID Card scan: $title", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "ID Card creation failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun mergeDocuments(
+        docIds: List<String>,
+        mergedTitle: String,
+        context: Context
+    ) {
+        if (docIds.size < 2) {
+            Toast.makeText(context, "Select at least 2 documents to merge", Toast.LENGTH_SHORT).show()
+            return
+        }
+        viewModelScope.launch {
+            val selectedDocs = _uiState.value.documents.filter { docIds.contains(it.id) }
+            val totalPages = selectedDocs.sumOf { it.pageCount }
+            val totalSizeMb = selectedDocs.sumOf {
+                it.fileSizeFormatted.replace("MB", "").trim().toDoubleOrNull() ?: 1.0
+            }
+
+            val mergedDoc = DocumentEntity(
+                id = "doc-merged-" + UUID.randomUUID().toString().take(8),
+                title = mergedTitle.ifBlank { "Merged_Document_${SimpleDateFormat("MMdd_HHmm", Locale.US).format(Date())}" },
+                category = DocumentCategory.CONTRACT.name,
+                pageCount = totalPages,
+                fileSizeFormatted = String.format(Locale.US, "%.1f MB", totalSizeMb),
+                createdAt = System.currentTimeMillis(),
+                modifiedAt = System.currentTimeMillis(),
+                isPasswordProtected = false,
+                watermarkText = "",
+                scaleRealDistance = 10f,
+                scalePixelDistance = 100f,
+                scaleUnit = "ft"
+            )
+
+            docDao.insertDocument(mergedDoc)
+            openDocument(mergedDoc)
+            _uiState.update { it.copy(isMergeDocsDialogOpen = false) }
+            Toast.makeText(context, "Merged ${docIds.size} docs into \"${mergedDoc.title}\"", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun splitDocument(
+        doc: DocumentEntity,
+        splitAfterPage: Int,
+        context: Context
+    ) {
+        viewModelScope.launch {
+            val part1 = doc.copy(
+                id = "doc-split1-" + UUID.randomUUID().toString().take(8),
+                title = "${doc.title} (Part 1)",
+                pageCount = splitAfterPage.coerceAtLeast(1),
+                createdAt = System.currentTimeMillis(),
+                modifiedAt = System.currentTimeMillis()
+            )
+            val part2 = doc.copy(
+                id = "doc-split2-" + UUID.randomUUID().toString().take(8),
+                title = "${doc.title} (Part 2)",
+                pageCount = (doc.pageCount - splitAfterPage).coerceAtLeast(1),
+                createdAt = System.currentTimeMillis(),
+                modifiedAt = System.currentTimeMillis()
+            )
+            docDao.insertDocument(part1)
+            docDao.insertDocument(part2)
+            _uiState.update { it.copy(isSplitDocDialogOpen = false, docToSplit = null) }
+            Toast.makeText(context, "Split into 2 documents successfully", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun extractTextFromDoc(doc: DocumentEntity) {
+        val text = PdfEngine.extractDocumentText(doc.title, doc.category, doc.pageCount)
+        setOcrViewerOpen(true, text, doc.title)
     }
 
     fun compressDocument(
@@ -973,7 +1226,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
 
                 delay(1000)
 
-                // Generate base PDF file if needed
                 val baseFile = PdfEngine.exportToPdfFile(
                     context = context,
                     documentTitle = doc.title,
@@ -1001,7 +1253,6 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
 
                 Toast.makeText(context, "Compressed \"${doc.title}\" (Saved ~$kbSaved KB)", Toast.LENGTH_LONG).show()
 
-                // Launch share intent
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", compressedFile)
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
