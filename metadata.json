@@ -1,0 +1,6 @@
+{
+  "name": "Document OS",
+  "description": "Enterprise-grade PDF & CAD document engine with Bluebeam-style measurements, deep markup, forms, digital signatures, and Gemini AI RAG.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
