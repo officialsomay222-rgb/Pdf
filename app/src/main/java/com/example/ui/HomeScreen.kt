@@ -11,6 +11,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -686,39 +687,70 @@ private fun DocsZTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // App Identity & Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                placeholder = { Text("Search docs, tags, text...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                leadingIcon = {
+            // App Identity & Luxury Search Bar with Crystal Clear Text Display
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .testTag("home_search_input"),
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.35f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
                         tint = CamScannerTeal,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(19.dp)
                     )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotBlank()) {
-                        IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(20.dp)) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "Search docs, tags, text...",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                maxLines = 1
+                            )
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = onSearchChange,
+                            singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(CamScannerTeal),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onSearchChange("") },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "Clear search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(46.dp)
-                    .testTag("home_search_input"),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                    focusedBorderColor = CamScannerTeal,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(24.dp)
-            )
+                }
+            }
 
             // Import Document / PDF Button
             IconButton(
@@ -2098,11 +2130,6 @@ private fun SettingsTabContent(
             Text("Customize Docs Z theme and engine", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        // Rainbow Continuous Lighting Creator Card
-        item {
-            RainbowOwnerCard()
-        }
-
         // Appearance / Theme Section
         item {
             Card(
@@ -2182,8 +2209,13 @@ private fun SettingsTabContent(
             }
         }
 
+        // Official App Attribution Card (Kept gracefully at the very bottom/last)
         item {
-            Spacer(modifier = Modifier.height(20.dp))
+            PremiumOwnerCard()
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(30.dp))
         }
     }
 }
@@ -2237,161 +2269,88 @@ private fun SettingRow(title: String, value: String) {
 }
 
 /**
- * Rainbow Continuous Lighting Card:
- * Features "This app is made by Owner_Official"
- * in a stunning animated continuous rainbow flowing glow and rainbow-brushed text.
+ * Official App Attribution Card:
+ * Clean, luxury Material 3 design sitting gracefully at the bottom of Settings.
  */
 @Composable
-private fun RainbowOwnerCard() {
-    val infiniteTransition = rememberInfiniteTransition(label = "RainbowLightingTransition")
-    
-    // Continuous sweeping gradient angle & position
-    val rainbowOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1200f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "RainbowSweeper"
-    )
-
-    // Pulsing luminous aura glow
-    val pulseGlow by infiniteTransition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "PulseGlow"
-    )
-
-    val rainbowColors = listOf(
-        Color(0xFFFF0055), // Vibrant Crimson
-        Color(0xFFFF6600), // Electric Orange
-        Color(0xFFFFDD00), // Sun Gold
-        Color(0xFF00FF77), // Emerald Neon
-        Color(0xFF00DDFF), // Cyan Flare
-        Color(0xFF7B2CBF), // Deep Purple
-        Color(0xFFFF00CC), // Magenta Pink
-        Color(0xFFFF0055)  // Loop
-    )
-
-    val dynamicRainbowBorder = Brush.linearGradient(
-        colors = rainbowColors,
-        start = Offset(rainbowOffset % 800f, 0f),
-        end = Offset((rainbowOffset % 800f) + 400f, 400f)
-    )
-
-    val textRainbowBrush = Brush.linearGradient(
-        colors = rainbowColors,
-        start = Offset((rainbowOffset * 1.4f) % 700f, 0f),
-        end = Offset(((rainbowOffset * 1.4f) % 700f) + 350f, 80f)
-    )
-
-    Box(
+private fun PremiumOwnerCard() {
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFFFF00AA).copy(alpha = 0.18f * pulseGlow),
-                        Color(0xFF00E5FF).copy(alpha = 0.10f * pulseGlow),
-                        Color.Transparent
-                    )
-                )
-            )
+            .clip(RoundedCornerShape(18.dp))
             .border(
-                width = 2.5.dp,
-                brush = dynamicRainbowBorder,
-                shape = RoundedCornerShape(20.dp)
+                width = 1.dp,
+                color = CamScannerTeal.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(18.dp)
             )
-            .padding(1.5.dp)
-            .testTag("rainbow_owner_card")
+            .testTag("owner_official_card"),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Surface(
+                shape = CircleShape,
+                color = CamScannerTeal.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.3f))
             ) {
-                // Continuous Lighting Header Badge
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(dynamicRainbowBorder)
-                        .padding(horizontal = 14.dp, vertical = 5.dp)
-                ) {
-                    Icon(
-                        Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        "CONTINUOUS LIGHTING FX",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        letterSpacing = 1.2.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Lead Introduction Text
-                Text(
-                    text = "This app is made by",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // "Owner_Official" in continuous flowing animated rainbow text
-                Text(
-                    text = "Owner_Official",
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Black,
-                    style = androidx.compose.ui.text.TextStyle(brush = textRainbowBrush),
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 0.5.sp
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Verification mark & creator subtitle
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         Icons.Default.Verified,
                         contentDescription = "Verified Creator",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(16.dp)
+                        tint = CamScannerTeal,
+                        modifier = Modifier.size(15.dp)
                     )
-                    Spacer(modifier = Modifier.width(5.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Lead Architect & Official Master Owner",
+                        "OFFICIAL DEVELOPER",
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.Bold,
+                        color = CamScannerTeal,
+                        letterSpacing = 0.8.sp
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = "This app is made by",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "Owner_Official",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = CamScannerTeal,
+                textAlign = TextAlign.Center,
+                letterSpacing = 0.4.sp
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "Lead Architect & Master Creator",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
