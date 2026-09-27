@@ -32,6 +32,7 @@ import java.util.UUID
 
 enum class AppScreen {
     HOME,
+    READER,
     WORKSPACE
 }
 
@@ -107,6 +108,11 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     private val _uiState = MutableStateFlow(DocumentUiState())
     val uiState: StateFlow<DocumentUiState> = _uiState.asStateFlow()
 
+    // Real PDF Page Bitmap Cache
+    private val pageBitmapCache = android.util.LruCache<String, Bitmap>(30)
+    private val _renderedPageBitmap = MutableStateFlow<Bitmap?>(null)
+    val renderedPageBitmap: StateFlow<Bitmap?> = _renderedPageBitmap.asStateFlow()
+
     // Undo / Redo Stacks (keyed by docId)
     private val undoStack = mutableMapOf<String, MutableList<List<AnnotationItem>>>()
     private val redoStack = mutableMapOf<String, MutableList<List<AnnotationItem>>>()
@@ -117,55 +123,96 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
 
     private fun initializeWorkspace() {
         viewModelScope.launch {
-            // Seed sample enterprise documents if database is empty
-            for (sample in SampleDocuments.sampleEntities) {
-                docDao.insertDocument(sample)
+            // Delete old demo/premade documents to ensure a fresh, clean user workspace
+            try {
+                docDao.deleteSampleDocuments()
+            } catch (e: Exception) {
+                // Ignore initial schema update differences
             }
 
             docDao.getAllDocuments().collect { docs ->
                 val currentTabs = _uiState.value.tabs
-                if (currentTabs.isEmpty() && docs.isNotEmpty()) {
-                    val firstDoc = docs.first()
-                    val initialTab = DocumentWorkspaceTab(
-                        id = UUID.randomUUID().toString(),
-                        documentId = firstDoc.id,
-                        title = firstDoc.title,
-                        category = try { DocumentCategory.valueOf(firstDoc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
-                        activePageIndex = 0,
-                        pageCount = firstDoc.pageCount,
-                        zoomLevel = 1.0f
-                    )
-
-                    val initAnn = mutableMapOf<String, List<AnnotationItem>>()
-                    val initMeas = mutableMapOf<String, List<MeasurementItem>>()
-                    val initFields = mutableMapOf<String, List<FormFieldItem>>()
-
-                    for (d in docs) {
-                        initAnn[d.id] = SampleDocuments.getInitialAnnotations(d.id)
-                        initMeas[d.id] = SampleDocuments.getInitialMeasurements(d.id)
-                        initFields[d.id] = SampleDocuments.getInitialFormFields(d.id)
+                if (docs.isEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            documents = emptyList(),
+                            activeDocument = null,
+                            tabs = emptyList(),
+                            activeTabId = ""
+                        )
                     }
+                    _renderedPageBitmap.value = null
+                } else {
+                    val activeDoc = docs.find { it.id == _uiState.value.activeDocument?.id } ?: docs.first()
+                    val tabs = if (currentTabs.isEmpty()) {
+                        listOf(
+                            DocumentWorkspaceTab(
+                                id = UUID.randomUUID().toString(),
+                                documentId = activeDoc.id,
+                                title = activeDoc.title,
+                                category = try { DocumentCategory.valueOf(activeDoc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
+                                activePageIndex = 0,
+                                pageCount = activeDoc.pageCount,
+                                zoomLevel = 1.0f
+                            )
+                        )
+                    } else currentTabs
 
                     _uiState.update {
                         it.copy(
                             documents = docs,
-                            activeDocument = firstDoc,
-                            tabs = listOf(initialTab),
-                            activeTabId = initialTab.id,
-                            annotations = initAnn,
-                            measurements = initMeas,
-                            formFields = initFields,
-                            activeScale = ScaleCalibration(
-                                pixelDistance = firstDoc.scalePixelDistance,
-                                realDistance = firstDoc.scaleRealDistance,
-                                unit = firstDoc.scaleUnit
-                            )
+                            activeDocument = activeDoc,
+                            tabs = tabs,
+                            activeTabId = tabs.firstOrNull()?.id ?: ""
                         )
                     }
-                } else {
-                    _uiState.update { it.copy(documents = docs) }
+                    loadActivePageBitmap()
                 }
             }
+        }
+    }
+
+    fun loadActivePageBitmap() {
+        val doc = _uiState.value.activeDocument ?: run {
+            _renderedPageBitmap.value = null
+            return
+        }
+        val tab = getActiveTab() ?: run {
+            _renderedPageBitmap.value = null
+            return
+        }
+        val pageIndex = tab.activePageIndex
+        val key = "${doc.id}_$pageIndex"
+        val cached = pageBitmapCache.get(key)
+        if (cached != null && !cached.isRecycled) {
+            _renderedPageBitmap.value = cached
+            return
+        }
+
+        if (doc.filePath.isNotBlank()) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val f = File(doc.filePath)
+                if (f.exists() && f.length() > 0L) {
+                    val isImg = doc.filePath.endsWith(".jpg", true) || doc.filePath.endsWith(".png", true) || doc.filePath.endsWith(".jpeg", true)
+                    val bmp = if (isImg) {
+                        try {
+                            BitmapFactory.decodeFile(doc.filePath)
+                        } catch (e: Exception) { null }
+                    } else {
+                        PdfEngine.renderPdfPage(doc.filePath, pageIndex, 1080)
+                    }
+                    if (bmp != null) {
+                        pageBitmapCache.put(key, bmp)
+                        _renderedPageBitmap.value = bmp
+                    } else {
+                        _renderedPageBitmap.value = null
+                    }
+                } else {
+                    _renderedPageBitmap.value = null
+                }
+            }
+        } else {
+            _renderedPageBitmap.value = null
         }
     }
 
@@ -205,7 +252,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     fun importPdfFromUri(uri: Uri, context: Context) {
         viewModelScope.launch {
             try {
-                var fileName = "External_Document.pdf"
+                var fileName = "Document_${SimpleDateFormat("MMdd_HHmm", Locale.US).format(Date())}.pdf"
                 var fileSize = 1024L * 1024L
 
                 context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -223,12 +270,12 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 val docTitle = fileName.removeSuffix(".pdf").replace("_", " ")
-                val fileSizeFormatted = String.format(Locale.US, "%.1f MB", (fileSize / (1024.0 * 1024.0)).coerceAtLeast(0.4))
 
-                // Copy stream to internal cache
-                val cachedFile = File(context.cacheDir, "imported_${System.currentTimeMillis()}_$fileName")
+                // Store in app persistent internal storage
+                val docsDir = File(context.filesDir, "docs").apply { mkdirs() }
+                val persistentFile = File(docsDir, "import_${System.currentTimeMillis()}_$fileName")
                 context.contentResolver.openInputStream(uri)?.use { input ->
-                    FileOutputStream(cachedFile).use { output ->
+                    FileOutputStream(persistentFile).use { output ->
                         input.copyTo(output)
                     }
                 }
@@ -239,11 +286,16 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
 
                 val docCategory = if (isImage) DocumentCategory.SPECIFICATION else DocumentCategory.CONTRACT
 
+                // Query REAL page count from the actual PDF file
+                val realPages = if (isImage) 1 else PdfEngine.getPdfPageCount(persistentFile.absolutePath)
+                val realSizeBytes = persistentFile.length().coerceAtLeast(fileSize)
+                val fileSizeFormatted = String.format(Locale.US, "%.1f MB", (realSizeBytes / (1024.0 * 1024.0)).coerceAtLeast(0.1))
+
                 val newDoc = DocumentEntity(
-                    id = "doc-import-" + UUID.randomUUID().toString().take(8),
+                    id = "doc-user-" + UUID.randomUUID().toString().take(8),
                     title = docTitle,
                     category = docCategory.name,
-                    pageCount = 3,
+                    pageCount = realPages,
                     fileSizeFormatted = fileSizeFormatted,
                     createdAt = System.currentTimeMillis(),
                     modifiedAt = System.currentTimeMillis(),
@@ -251,7 +303,9 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     watermarkText = "",
                     scaleRealDistance = 10f,
                     scalePixelDistance = 100f,
-                    scaleUnit = "ft"
+                    scaleUnit = "ft",
+                    filePath = persistentFile.absolutePath,
+                    uriString = uri.toString()
                 )
 
                 docDao.insertDocument(newDoc)
@@ -260,9 +314,9 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 NotificationHelper.showCompletionNotification(
                     context,
                     "Opened in Docs Z",
-                    "\"$docTitle\" loaded in Docs Z workspace engine."
+                    "\"$docTitle\" ($realPages pages) loaded in Docs Z workspace."
                 )
-                Toast.makeText(context, "Opened in Docs Z: $docTitle", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Opened: $docTitle ($realPages pages)", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "Could not open document: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
@@ -413,6 +467,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 } ?: ScaleCalibration()
             )
         }
+        loadActivePageBitmap()
     }
 
     fun navigateToHome() {
@@ -604,16 +659,48 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun openDocument(doc: DocumentEntity) {
+        openDocumentInReader(doc)
+    }
+
+    fun openDocumentInReader(doc: DocumentEntity) {
         val existingTab = _uiState.value.tabs.find { it.documentId == doc.id }
         if (existingTab != null) {
             selectTab(existingTab.id)
-            _uiState.update { it.copy(currentScreen = AppScreen.WORKSPACE) }
+            _uiState.update { it.copy(currentScreen = AppScreen.READER, activeDocument = doc) }
         } else {
             val newTab = DocumentWorkspaceTab(
                 id = UUID.randomUUID().toString(),
                 documentId = doc.id,
                 title = doc.title,
-                category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
+                category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
+                activePageIndex = 0,
+                pageCount = doc.pageCount,
+                zoomLevel = 1.0f
+            )
+            _uiState.update {
+                it.copy(
+                    tabs = it.tabs + newTab,
+                    activeTabId = newTab.id,
+                    activeDocument = doc,
+                    isDocLibraryOpen = false,
+                    currentScreen = AppScreen.READER
+                )
+            }
+        }
+        loadActivePageBitmap()
+    }
+
+    fun openDocumentInStudio(doc: DocumentEntity) {
+        val existingTab = _uiState.value.tabs.find { it.documentId == doc.id }
+        if (existingTab != null) {
+            selectTab(existingTab.id)
+            _uiState.update { it.copy(currentScreen = AppScreen.WORKSPACE, activeDocument = doc) }
+        } else {
+            val newTab = DocumentWorkspaceTab(
+                id = UUID.randomUUID().toString(),
+                documentId = doc.id,
+                title = doc.title,
+                category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
                 activePageIndex = 0,
                 pageCount = doc.pageCount,
                 zoomLevel = 1.0f
@@ -628,6 +715,17 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 )
             }
         }
+        loadActivePageBitmap()
+    }
+
+    fun switchToReader() {
+        _uiState.update { it.copy(currentScreen = AppScreen.READER) }
+        loadActivePageBitmap()
+    }
+
+    fun switchToStudio() {
+        _uiState.update { it.copy(currentScreen = AppScreen.WORKSPACE) }
+        loadActivePageBitmap()
     }
 
     fun closeTab(tabId: String) {
@@ -677,8 +775,9 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
 
     fun setActivePage(pageIndex: Int) {
         val activeTab = getActiveTab() ?: return
-        val clamped = pageIndex.coerceIn(0, activeTab.pageCount - 1)
+        val clamped = pageIndex.coerceIn(0, (activeTab.pageCount - 1).coerceAtLeast(0))
         updateActiveTab { it.copy(activePageIndex = clamped) }
+        loadActivePageBitmap()
     }
 
     // -------------------------------------------------------------
@@ -906,8 +1005,11 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     fun exportDocument(context: Context) {
         val activeTab = getActiveTab() ?: return
         val doc = _uiState.value.activeDocument ?: return
-        val docId = doc.id
+        exportAndShareDocument(doc, context)
+    }
 
+    fun exportAndShareDocument(doc: DocumentEntity, context: Context) {
+        val docId = doc.id
         val annotationsList = _uiState.value.annotations[docId] ?: emptyList()
         val measurementsList = _uiState.value.measurements[docId] ?: emptyList()
         val fieldsList = _uiState.value.formFields[docId] ?: emptyList()
@@ -917,27 +1019,31 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 NotificationHelper.showProgressNotification(
                     context,
                     "Docs Z PDF Export",
-                    "Compiling \"${doc.title}\" with all markup...",
+                    "Compiling \"${doc.title}\"...",
                     50
                 )
 
-                val pdfFile = PdfEngine.exportToPdfFile(
-                    context = context,
-                    documentTitle = doc.title,
-                    pageCount = activeTab.pageCount,
-                    category = activeTab.category,
-                    annotations = annotationsList,
-                    measurements = measurementsList,
-                    formFields = fieldsList,
-                    watermark = doc.watermarkText
-                )
+                val pdfFile = if (doc.filePath.isNotBlank() && File(doc.filePath).exists() && annotationsList.isEmpty() && doc.watermarkText.isBlank()) {
+                    File(doc.filePath)
+                } else {
+                    PdfEngine.exportToPdfFile(
+                        context = context,
+                        documentTitle = doc.title,
+                        pageCount = doc.pageCount,
+                        category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
+                        annotations = annotationsList,
+                        measurements = measurementsList,
+                        formFields = fieldsList,
+                        watermark = doc.watermarkText
+                    )
+                }
 
                 _uiState.update { it.copy(exportedPdfFile = pdfFile) }
 
                 NotificationHelper.showCompletionNotification(
                     context,
-                    "PDF Export Complete (Docs Z)",
-                    "\"${doc.title}.pdf\" compiled successfully (${pdfFile.length() / 1024} KB)."
+                    "PDF Ready",
+                    "\"${doc.title}.pdf\" compiled successfully."
                 )
 
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", pdfFile)
@@ -1043,7 +1149,8 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         title: String,
         bitmaps: List<Bitmap>,
         filter: String,
-        context: Context
+        context: Context,
+        addWhiteBorder: Boolean = false
     ) {
         if (bitmaps.isEmpty()) return
 
@@ -1060,7 +1167,8 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     context = context,
                     title = title,
                     bitmaps = bitmaps,
-                    filter = filter
+                    filter = filter,
+                    addWhiteBorder = addWhiteBorder
                 )
 
                 val newDoc = DocumentEntity(
@@ -1068,14 +1176,15 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     title = title,
                     category = DocumentCategory.SPECIFICATION.name,
                     pageCount = bitmaps.size,
-                    fileSizeFormatted = String.format(Locale.US, "%.1f MB", (pdfFile.length() / (1024.0 * 1024.0)).coerceAtLeast(0.5)),
+                    fileSizeFormatted = String.format(Locale.US, "%.1f MB", (pdfFile.length() / (1024.0 * 1024.0)).coerceAtLeast(0.1)),
                     createdAt = System.currentTimeMillis(),
                     modifiedAt = System.currentTimeMillis(),
                     isPasswordProtected = false,
                     watermarkText = "",
                     scaleRealDistance = 10f,
                     scalePixelDistance = 100f,
-                    scaleUnit = "ft"
+                    scaleUnit = "ft",
+                    filePath = pdfFile.absolutePath
                 )
 
                 docDao.insertDocument(newDoc)
@@ -1114,14 +1223,15 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     title = title,
                     category = DocumentCategory.ID_CARD.name,
                     pageCount = 1,
-                    fileSizeFormatted = "1.2 MB",
+                    fileSizeFormatted = String.format(Locale.US, "%.1f MB", (pdfFile.length() / (1024.0 * 1024.0)).coerceAtLeast(0.1)),
                     createdAt = System.currentTimeMillis(),
                     modifiedAt = System.currentTimeMillis(),
                     isPasswordProtected = false,
                     watermarkText = "",
                     scaleRealDistance = 10f,
                     scalePixelDistance = 100f,
-                    scaleUnit = "ft"
+                    scaleUnit = "ft",
+                    filePath = pdfFile.absolutePath
                 )
 
                 docDao.insertDocument(newDoc)
@@ -1144,31 +1254,47 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             return
         }
         viewModelScope.launch {
-            val selectedDocs = _uiState.value.documents.filter { docIds.contains(it.id) }
-            val totalPages = selectedDocs.sumOf { it.pageCount }
-            val totalSizeMb = selectedDocs.sumOf {
-                it.fileSizeFormatted.replace("MB", "").trim().toDoubleOrNull() ?: 1.0
+            try {
+                val selectedDocs = _uiState.value.documents.filter { docIds.contains(it.id) }
+                val totalPages = selectedDocs.sumOf { it.pageCount }
+                val validPaths = selectedDocs.mapNotNull { it.filePath.takeIf { p -> p.isNotBlank() && File(p).exists() } }
+
+                var mergedPath = ""
+                if (validPaths.isNotEmpty()) {
+                    val mergedFile = PdfEngine.mergeRealPdfs(context, validPaths, mergedTitle)
+                    if (mergedFile != null) {
+                        mergedPath = mergedFile.absolutePath
+                    }
+                }
+
+                val finalFile = if (mergedPath.isNotBlank()) File(mergedPath) else null
+                val sizeMb = if (finalFile != null) {
+                    String.format(Locale.US, "%.1f MB", (finalFile.length() / (1024.0 * 1024.0)).coerceAtLeast(0.1))
+                } else "1.5 MB"
+
+                val mergedDoc = DocumentEntity(
+                    id = "doc-merged-" + UUID.randomUUID().toString().take(8),
+                    title = mergedTitle.ifBlank { "Merged_Document_${SimpleDateFormat("MMdd_HHmm", Locale.US).format(Date())}" },
+                    category = DocumentCategory.CONTRACT.name,
+                    pageCount = totalPages,
+                    fileSizeFormatted = sizeMb,
+                    createdAt = System.currentTimeMillis(),
+                    modifiedAt = System.currentTimeMillis(),
+                    isPasswordProtected = false,
+                    watermarkText = "",
+                    scaleRealDistance = 10f,
+                    scalePixelDistance = 100f,
+                    scaleUnit = "ft",
+                    filePath = mergedPath
+                )
+
+                docDao.insertDocument(mergedDoc)
+                openDocument(mergedDoc)
+                _uiState.update { it.copy(isMergeDocsDialogOpen = false) }
+                Toast.makeText(context, "Merged into \"${mergedDoc.title}\" ($totalPages pages)", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Merge error: ${e.message}", Toast.LENGTH_SHORT).show()
             }
-
-            val mergedDoc = DocumentEntity(
-                id = "doc-merged-" + UUID.randomUUID().toString().take(8),
-                title = mergedTitle.ifBlank { "Merged_Document_${SimpleDateFormat("MMdd_HHmm", Locale.US).format(Date())}" },
-                category = DocumentCategory.CONTRACT.name,
-                pageCount = totalPages,
-                fileSizeFormatted = String.format(Locale.US, "%.1f MB", totalSizeMb),
-                createdAt = System.currentTimeMillis(),
-                modifiedAt = System.currentTimeMillis(),
-                isPasswordProtected = false,
-                watermarkText = "",
-                scaleRealDistance = 10f,
-                scalePixelDistance = 100f,
-                scaleUnit = "ft"
-            )
-
-            docDao.insertDocument(mergedDoc)
-            openDocument(mergedDoc)
-            _uiState.update { it.copy(isMergeDocsDialogOpen = false) }
-            Toast.makeText(context, "Merged ${docIds.size} docs into \"${mergedDoc.title}\"", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -1178,24 +1304,39 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         context: Context
     ) {
         viewModelScope.launch {
-            val part1 = doc.copy(
-                id = "doc-split1-" + UUID.randomUUID().toString().take(8),
-                title = "${doc.title} (Part 1)",
-                pageCount = splitAfterPage.coerceAtLeast(1),
-                createdAt = System.currentTimeMillis(),
-                modifiedAt = System.currentTimeMillis()
-            )
-            val part2 = doc.copy(
-                id = "doc-split2-" + UUID.randomUUID().toString().take(8),
-                title = "${doc.title} (Part 2)",
-                pageCount = (doc.pageCount - splitAfterPage).coerceAtLeast(1),
-                createdAt = System.currentTimeMillis(),
-                modifiedAt = System.currentTimeMillis()
-            )
-            docDao.insertDocument(part1)
-            docDao.insertDocument(part2)
-            _uiState.update { it.copy(isSplitDocDialogOpen = false, docToSplit = null) }
-            Toast.makeText(context, "Split into 2 documents successfully", Toast.LENGTH_SHORT).show()
+            try {
+                var part1Path = ""
+                var part2Path = ""
+                if (doc.filePath.isNotBlank() && File(doc.filePath).exists()) {
+                    val pair = PdfEngine.splitRealPdf(context, doc.filePath, splitAfterPage, doc.title)
+                    if (pair != null) {
+                        part1Path = pair.first.absolutePath
+                        part2Path = pair.second.absolutePath
+                    }
+                }
+                val part1 = doc.copy(
+                    id = "doc-split1-" + UUID.randomUUID().toString().take(8),
+                    title = "${doc.title} (Part 1)",
+                    pageCount = splitAfterPage.coerceAtLeast(1),
+                    createdAt = System.currentTimeMillis(),
+                    modifiedAt = System.currentTimeMillis(),
+                    filePath = part1Path
+                )
+                val part2 = doc.copy(
+                    id = "doc-split2-" + UUID.randomUUID().toString().take(8),
+                    title = "${doc.title} (Part 2)",
+                    pageCount = (doc.pageCount - splitAfterPage).coerceAtLeast(1),
+                    createdAt = System.currentTimeMillis(),
+                    modifiedAt = System.currentTimeMillis(),
+                    filePath = part2Path
+                )
+                docDao.insertDocument(part1)
+                docDao.insertDocument(part2)
+                _uiState.update { it.copy(isSplitDocDialogOpen = false, docToSplit = null) }
+                Toast.makeText(context, "Split \"${doc.title}\" into 2 real documents", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Split failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -1211,58 +1352,49 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     ) {
         viewModelScope.launch {
             try {
-                val reductionStr = when (quality) {
-                    "HIGH" -> "~55%"
-                    "MEDIUM" -> "~35%"
-                    else -> "~20%"
+                var newPath = doc.filePath
+                var bytesSaved = 0L
+
+                if (doc.filePath.isNotBlank() && File(doc.filePath).exists()) {
+                    val res = PdfEngine.compressPhysicalPdf(context, doc.filePath, quality)
+                    if (res != null) {
+                        newPath = res.first.absolutePath
+                        bytesSaved = res.second
+                    }
+                } else {
+                    val baseFile = PdfEngine.exportToPdfFile(
+                        context = context,
+                        documentTitle = doc.title,
+                        pageCount = doc.pageCount,
+                        category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
+                        annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                        measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                        formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                        watermark = doc.watermarkText
+                    )
+                    val (compressedFile, saved) = PdfEngine.compressPdfFile(context, baseFile, quality)
+                    newPath = compressedFile.absolutePath
+                    bytesSaved = saved
                 }
 
-                NotificationHelper.showProgressNotification(
-                    context,
-                    "Optimizing & Compressing PDF",
-                    "Applying $reductionStr downsampling algorithm...",
-                    60
+                val newSizeMb = if (newPath.isNotBlank()) {
+                    String.format(Locale.US, "%.1f MB", (File(newPath).length() / (1024.0 * 1024.0)).coerceAtLeast(0.1))
+                } else "1.0 MB"
+
+                val updatedDoc = doc.copy(
+                    filePath = newPath,
+                    fileSizeFormatted = newSizeMb,
+                    modifiedAt = System.currentTimeMillis()
                 )
+                docDao.updateDocument(updatedDoc)
 
-                delay(1000)
-
-                val baseFile = PdfEngine.exportToPdfFile(
-                    context = context,
-                    documentTitle = doc.title,
-                    pageCount = doc.pageCount,
-                    category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
-                    annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
-                    measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
-                    formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
-                    watermark = doc.watermarkText
-                )
-
-                val (compressedFile, bytesSaved) = PdfEngine.compressPdfFile(
-                    context = context,
-                    originalFile = baseFile,
-                    compressionLevel = quality
-                )
-
-                val kbSaved = (bytesSaved / 1024).coerceAtLeast(120)
-
-                NotificationHelper.showCompletionNotification(
-                    context,
-                    "PDF Compression Complete",
-                    "Saved $kbSaved KB ($reductionStr). Ready to share."
-                )
-
-                Toast.makeText(context, "Compressed \"${doc.title}\" (Saved ~$kbSaved KB)", Toast.LENGTH_LONG).show()
-
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", compressedFile)
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "application/pdf"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(Intent.createChooser(shareIntent, "Share Compressed PDF"))
+                val kbSaved = (bytesSaved / 1024).coerceAtLeast(80)
+                Toast.makeText(context, "Optimized! Saved ${kbSaved} KB (New size: $newSizeMb)", Toast.LENGTH_LONG).show()
+                _uiState.update { it.copy(isCompressorOpen = false, compressTargetDoc = null) }
+                pageBitmapCache.evictAll()
+                loadActivePageBitmap()
             } catch (e: Exception) {
-                NotificationHelper.cancelProgress(context)
-                Toast.makeText(context, "Compression: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Compression error: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }

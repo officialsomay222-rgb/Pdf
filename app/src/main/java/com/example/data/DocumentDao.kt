@@ -31,4 +31,10 @@ interface DocumentDao {
 
     @Query("UPDATE documents SET watermarkText = :watermark WHERE id = :id")
     suspend fun updateWatermark(id: String, watermark: String)
+
+    @Query("DELETE FROM documents WHERE id LIKE 'doc-1%' OR id LIKE 'doc-2%' OR id LIKE 'doc-3%' OR id LIKE 'doc-4%' OR id LIKE 'doc-5%' OR id LIKE 'doc-6%'")
+    suspend fun deleteSampleDocuments()
+
+    @Query("DELETE FROM documents")
+    suspend fun deleteAllDocuments()
 }

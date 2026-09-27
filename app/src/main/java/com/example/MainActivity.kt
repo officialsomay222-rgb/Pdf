@@ -45,6 +45,7 @@ import com.example.ui.AppScreen
 import com.example.ui.DocumentUiState
 import com.example.ui.DocumentViewModel
 import com.example.ui.HomeScreen
+import com.example.ui.PdfNormalReaderScreen
 import com.example.ui.canvas.DocumentCanvas
 import com.example.ui.components.*
 import com.example.ui.theme.*
@@ -89,8 +90,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // BackHandler returns to Home screen if currently in workspace
-                BackHandler(enabled = uiState.currentScreen == AppScreen.WORKSPACE) {
+                // BackHandler returns to Home screen if currently in workspace or reader
+                BackHandler(enabled = uiState.currentScreen != AppScreen.HOME) {
                     viewModel.navigateToHome()
                 }
 
@@ -107,6 +108,15 @@ class MainActivity : ComponentActivity() {
                                 onOpenDocument = { viewModel.openDocument(it) },
                                 onLaunchWorkflow = { viewModel.launchWorkflow(it) },
                                 onResumeWorkspace = { viewModel.navigateToWorkspace() },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        AppScreen.READER -> {
+                            PdfNormalReaderScreen(
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                onBack = { viewModel.navigateToHome() },
+                                onOpenInStudio = { doc -> viewModel.openDocumentInStudio(doc) },
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -272,6 +282,7 @@ fun DocumentOsScreen(
     val context = LocalContext.current
     val activeTab = uiState.tabs.find { it.id == uiState.activeTabId }
     val activeDoc = uiState.activeDocument
+    val renderedBitmap by viewModel.renderedPageBitmap.collectAsStateWithLifecycle()
 
     val activeDocId = activeDoc?.id ?: ""
     val currentAnnotations = uiState.annotations[activeDocId] ?: emptyList()
@@ -352,7 +363,8 @@ fun DocumentOsScreen(
                     activeScale = uiState.activeScale,
                     onAddMeasurement = { viewModel.addMeasurement(it) },
                     formFields = currentFields,
-                    onFormFieldClick = { viewModel.onFormFieldClick(it) }
+                    onFormFieldClick = { viewModel.onFormFieldClick(it) },
+                    renderedPageBitmap = renderedBitmap
                 )
 
                 // Floating Zoom HUD in Top-Right

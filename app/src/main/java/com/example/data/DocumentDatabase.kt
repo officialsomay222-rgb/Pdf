@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.model.DocumentEntity
 
-@Database(entities = [DocumentEntity::class], version = 1, exportSchema = false)
+@Database(entities = [DocumentEntity::class], version = 2, exportSchema = false)
 abstract class DocumentDatabase : RoomDatabase() {
     abstract fun documentDao(): DocumentDao
 
@@ -20,7 +20,9 @@ abstract class DocumentDatabase : RoomDatabase() {
                     context.applicationContext,
                     DocumentDatabase::class.java,
                     "document_os_database"
-                ).build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

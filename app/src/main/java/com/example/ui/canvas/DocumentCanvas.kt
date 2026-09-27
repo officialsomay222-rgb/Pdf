@@ -53,6 +53,7 @@ fun DocumentCanvas(
     onAddMeasurement: (MeasurementItem) -> Unit,
     formFields: List<FormFieldItem>,
     onFormFieldClick: (FormFieldItem) -> Unit,
+    renderedPageBitmap: android.graphics.Bitmap? = null,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -255,43 +256,57 @@ fun DocumentCanvas(
             // Document sheet origin with pan & zoom
             val pageLeft = panOffsetX
             val pageTop = panOffsetY
-            val scaledPageWidth = docPageWidth * zoomLevel
-            val scaledPageHeight = docPageHeight * zoomLevel
-
-            // 1. Draw Document Canvas Sheet Shadow & Base
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.18f),
-                topLeft = Offset(pageLeft + 4f, pageTop + 6f),
-                size = Size(scaledPageWidth, scaledPageHeight),
-                cornerRadius = CornerRadius(8f, 8f)
-            )
-
-            // Sheet Paper Background - Clean authentic white paper for all documents (or technical navy if blueprint)
-            val paperColor = when (category) {
-                DocumentCategory.BLUEPRINT -> Color(0xFF0F1E36) // Deep blueprint midnight navy
-                else -> Color.White // Crisp clean white paper for contracts, forms, notes, PDFs, specs, receipts
+            val basePageWidth = if (canvasWidth > 100f) canvasWidth else 720f
+            val basePageHeight = if (renderedPageBitmap != null && renderedPageBitmap.width > 0) {
+                basePageWidth * (renderedPageBitmap.height.toFloat() / renderedPageBitmap.width.toFloat())
+            } else {
+                basePageWidth * 1.35f
             }
-            drawRoundRect(
-                color = paperColor,
-                topLeft = Offset(pageLeft, pageTop),
-                size = Size(scaledPageWidth, scaledPageHeight),
-                cornerRadius = CornerRadius(6f, 6f)
-            )
+            val scaledPageWidth = basePageWidth * zoomLevel
+            val scaledPageHeight = basePageHeight * zoomLevel
 
-            // Document Border Line
-            drawRoundRect(
-                color = when (category) {
-                    DocumentCategory.BLUEPRINT -> Color(0xFF0284C7)
-                    else -> Color(0xFFE2E8F0)
-                },
-                topLeft = Offset(pageLeft, pageTop),
-                size = Size(scaledPageWidth, scaledPageHeight),
-                cornerRadius = CornerRadius(6f, 6f),
-                style = Stroke(width = 1.5f)
-            )
+            // 1. Draw Document Canvas Sheet Shadow & Base (skip outer shadow for full bleed PDF)
+            if (renderedPageBitmap == null) {
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = 0.18f),
+                    topLeft = Offset(pageLeft + 4f, pageTop + 6f),
+                    size = Size(scaledPageWidth, scaledPageHeight),
+                    cornerRadius = CornerRadius(8f, 8f)
+                )
 
-            // 2. Render Specialized Content based on Category
-            if (category == DocumentCategory.BLUEPRINT) {
+                // Sheet Paper Background
+                val paperColor = when (category) {
+                    DocumentCategory.BLUEPRINT -> Color(0xFF0F1E36) // Deep blueprint midnight navy
+                    else -> Color.White // Crisp clean white paper
+                }
+                drawRoundRect(
+                    color = paperColor,
+                    topLeft = Offset(pageLeft, pageTop),
+                    size = Size(scaledPageWidth, scaledPageHeight),
+                    cornerRadius = CornerRadius(6f, 6f)
+                )
+
+                // Document Border Line
+                drawRoundRect(
+                    color = when (category) {
+                        DocumentCategory.BLUEPRINT -> Color(0xFF0284C7)
+                        else -> Color(0xFFE2E8F0)
+                    },
+                    topLeft = Offset(pageLeft, pageTop),
+                    size = Size(scaledPageWidth, scaledPageHeight),
+                    cornerRadius = CornerRadius(6f, 6f),
+                    style = Stroke(width = 1.5f)
+                )
+            }
+
+            // 2. Render Real PDF Page or Specialized Category Content
+            if (renderedPageBitmap != null) {
+                drawImage(
+                    image = renderedPageBitmap.asImageBitmap(),
+                    dstOffset = androidx.compose.ui.unit.IntOffset(pageLeft.toInt(), pageTop.toInt()),
+                    dstSize = androidx.compose.ui.unit.IntSize(scaledPageWidth.toInt(), scaledPageHeight.toInt())
+                )
+            } else if (category == DocumentCategory.BLUEPRINT) {
                 renderArchitecturalBlueprint(
                     pageLeft = pageLeft,
                     pageTop = pageTop,

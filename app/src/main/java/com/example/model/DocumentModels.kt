@@ -230,7 +230,9 @@ data class DocumentEntity(
     val watermarkText: String = "",
     val scaleRealDistance: Float = 10f,
     val scalePixelDistance: Float = 100f,
-    val scaleUnit: String = "ft"
+    val scaleUnit: String = "ft",
+    val filePath: String = "",
+    val uriString: String = ""
 )
 
 data class DocumentWorkspaceTab(

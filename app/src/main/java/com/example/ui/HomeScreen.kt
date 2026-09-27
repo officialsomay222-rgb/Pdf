@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -36,6 +39,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -228,8 +232,8 @@ fun HomeScreen(
                 CamScannerNavTab.SCAN -> {
                     ScanStudioTabContent(
                         viewModel = viewModel,
-                        onCreatePdf = { title, bmps, filter ->
-                            viewModel.createPdfFromScannedImages(title, bmps, filter, context)
+                        onCreatePdf = { title, bmps, filter, addWhiteBorder ->
+                            viewModel.createPdfFromScannedImages(title, bmps, filter, context, addWhiteBorder)
                         },
                         onOpenIdCard = { viewModel.setIdCardScannerOpen(true) }
                     )
@@ -399,6 +403,16 @@ private fun DocsTabHomeContent(
     val context = LocalContext.current
     var showSortMenu by remember { mutableStateOf(false) }
 
+    // PDF & Document File Picker Launcher
+    val pdfPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            if (uri != null) {
+                viewModel.importPdfFromUri(uri, context)
+            }
+        }
+    )
+
     // Multi-file photo picker
     val galleryPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(20),
@@ -442,7 +456,7 @@ private fun DocsTabHomeContent(
                 },
                 onOpenSortMenu = { showSortMenu = true },
                 onImportFiles = {
-                    galleryPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    pdfPicker.launch(arrayOf("application/pdf", "image/*"))
                 }
             )
         }
@@ -576,6 +590,7 @@ private fun DocsTabHomeContent(
                 item {
                     EmptyDocumentsPlaceholder(
                         onOpenScan = { viewModel.setNavTab(CamScannerNavTab.SCAN) },
+                        onOpenImport = { pdfPicker.launch(arrayOf("application/pdf", "image/*")) },
                         onOpenCreate = { viewModel.setCreateProjectDialogOpen(true) }
                     )
                 }
@@ -587,7 +602,8 @@ private fun DocsTabHomeContent(
                             isSelected = uiState.selectedDocIds.contains(doc.id),
                             isMultiSelectMode = uiState.isMultiSelectMode,
                             onToggleSelect = { viewModel.toggleSelectDoc(doc.id) },
-                            onOpen = { onOpenDocument(doc) },
+                            onOpen = { viewModel.openDocumentInReader(doc) },
+                            onOpenStudio = { viewModel.openDocumentInStudio(doc) },
                             onRename = { viewModel.setRenameDialogOpen(true, doc) },
                             onShare = {
                                 viewModel.openDocument(doc)
@@ -618,7 +634,8 @@ private fun DocsTabHomeContent(
                                     isSelected = uiState.selectedDocIds.contains(doc.id),
                                     isMultiSelectMode = uiState.isMultiSelectMode,
                                     onToggleSelect = { viewModel.toggleSelectDoc(doc.id) },
-                                    onOpen = { onOpenDocument(doc) },
+                                    onOpen = { viewModel.openDocumentInReader(doc) },
+                                    onOpenStudio = { viewModel.openDocumentInStudio(doc) },
                                     onRename = { viewModel.setRenameDialogOpen(true, doc) },
                                     onShare = {
                                         viewModel.openDocument(doc)
@@ -702,6 +719,23 @@ private fun DocsZTopBar(
                 ),
                 shape = RoundedCornerShape(24.dp)
             )
+
+            // Import Document / PDF Button
+            IconButton(
+                onClick = onImportFiles,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(CamScannerTeal.copy(alpha = 0.12f))
+                    .border(0.5.dp, CamScannerTeal.copy(alpha = 0.4f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileOpen,
+                    contentDescription = "Import PDF",
+                    tint = CamScannerTeal,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
 
             // View Mode Toggle (List vs Grid)
             IconButton(
@@ -1063,6 +1097,7 @@ private fun DocZListItemCard(
     isMultiSelectMode: Boolean,
     onToggleSelect: () -> Unit,
     onOpen: () -> Unit,
+    onOpenStudio: () -> Unit,
     onRename: () -> Unit,
     onShare: () -> Unit,
     onCompress: () -> Unit,
@@ -1189,6 +1224,19 @@ private fun DocZListItemCard(
                 }
             }
 
+            // Quick Studio Editor Button
+            IconButton(
+                onClick = onOpenStudio,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Studio Editor",
+                    tint = CamScannerTeal,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+
             // 3-dot context menu
             Box {
                 IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
@@ -1200,9 +1248,14 @@ private fun DocZListItemCard(
                     onDismissRequest = { showMenu = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Open Workspace") },
+                        text = { Text("Quick View (Normal Reader)") },
                         onClick = { showMenu = false; onOpen() },
-                        leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null, tint = CamScannerTeal) }
+                        leadingIcon = { Icon(Icons.Default.MenuBook, contentDescription = null, tint = CamScannerTeal) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Studio Editor (All-in-One)") },
+                        onClick = { showMenu = false; onOpenStudio() },
+                        leadingIcon = { Icon(Icons.Default.Handyman, contentDescription = null, tint = Color(0xFFF59E0B)) }
                     )
                     DropdownMenuItem(
                         text = { Text("Rename") },
@@ -1262,6 +1315,7 @@ private fun DocZGridItemCard(
     isMultiSelectMode: Boolean,
     onToggleSelect: () -> Unit,
     onOpen: () -> Unit,
+    onOpenStudio: () -> Unit,
     onRename: () -> Unit,
     onShare: () -> Unit,
     onCompress: () -> Unit,
@@ -1345,13 +1399,20 @@ private fun DocZGridItemCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onShare, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                IconButton(onClick = onOpenStudio, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "Studio Editor", tint = CamScannerTeal, modifier = Modifier.size(15.dp))
                 }
-                IconButton(onClick = onCompress, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Compress, contentDescription = "Compress", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+
+                Row {
+                    IconButton(onClick = onShare, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                    }
+                    IconButton(onClick = onCompress, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Compress, contentDescription = "Compress", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                    }
                 }
             }
         }
@@ -1545,19 +1606,35 @@ private fun ToolCategorySection(
 @Composable
 private fun ScanStudioTabContent(
     viewModel: DocumentViewModel,
-    onCreatePdf: (title: String, bitmaps: List<Bitmap>, filter: String) -> Unit,
+    onCreatePdf: (title: String, bitmaps: List<Bitmap>, filter: String, extraWhiteBorder: Boolean) -> Unit,
     onOpenIdCard: () -> Unit
 ) {
     val context = LocalContext.current
     var docTitle by remember { mutableStateOf("Scan_${SimpleDateFormat("MMdd_HHmm", Locale.US).format(Date())}") }
     val capturedImages = remember { mutableStateListOf<Bitmap>() }
     var selectedFilter by remember { mutableStateOf("ORIGINAL") } // ORIGINAL, BW_DOCUMENT, GRAYSCALE
+    var addExtraWhiteBorder by remember { mutableStateOf(true) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview(),
         onResult = { bitmap ->
             if (bitmap != null) {
                 capturedImages.add(bitmap)
+            }
+        }
+    )
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            if (isGranted) {
+                try {
+                    cameraLauncher.launch(null)
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Could not open camera: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(context, "Camera permission is required to scan sheets. You can also pick photos from gallery.", Toast.LENGTH_LONG).show()
             }
         }
     )
@@ -1615,7 +1692,21 @@ private fun ScanStudioTabContent(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { cameraLauncher.launch(null) }
+                        .clickable {
+                            val hasCamPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                                context,
+                                android.Manifest.permission.CAMERA
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                            if (hasCamPermission) {
+                                try {
+                                    cameraLauncher.launch(null)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Cannot open camera: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                            }
+                        }
                         .border(1.dp, CamScannerTeal.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
                     colors = CardDefaults.cardColors(containerColor = CamScannerTeal.copy(alpha = 0.12f))
                 ) {
@@ -1789,6 +1880,40 @@ private fun ScanStudioTabContent(
             }
         }
 
+        // Extra White Border Toggle
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.BorderOuter, contentDescription = null, tint = CamScannerTeal, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Extra Whiter Border Margin", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Text("Add clean crisp white border frame around sheets", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = addExtraWhiteBorder,
+                        onCheckedChange = { addExtraWhiteBorder = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = CamScannerTeal
+                        )
+                    )
+                }
+            }
+        }
+
         // Generate PDF Button
         item {
             Button(
@@ -1797,7 +1922,7 @@ private fun ScanStudioTabContent(
                         Toast.makeText(context, "Please capture at least 1 image", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
-                    onCreatePdf(docTitle.trim().ifEmpty { "Scanned_PDF" }, capturedImages.toList(), selectedFilter)
+                    onCreatePdf(docTitle.trim().ifEmpty { "Scanned_PDF" }, capturedImages.toList(), selectedFilter, addExtraWhiteBorder)
                 },
                 enabled = capturedImages.isNotEmpty(),
                 colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
@@ -1973,6 +2098,11 @@ private fun SettingsTabContent(
             Text("Customize Docs Z theme and engine", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
+        // Rainbow Continuous Lighting Creator Card
+        item {
+            RainbowOwnerCard()
+        }
+
         // Appearance / Theme Section
         item {
             Card(
@@ -2106,6 +2236,166 @@ private fun SettingRow(title: String, value: String) {
     }
 }
 
+/**
+ * Rainbow Continuous Lighting Card:
+ * Features "This app is made by Owner_Official"
+ * in a stunning animated continuous rainbow flowing glow and rainbow-brushed text.
+ */
+@Composable
+private fun RainbowOwnerCard() {
+    val infiniteTransition = rememberInfiniteTransition(label = "RainbowLightingTransition")
+    
+    // Continuous sweeping gradient angle & position
+    val rainbowOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "RainbowSweeper"
+    )
+
+    // Pulsing luminous aura glow
+    val pulseGlow by infiniteTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "PulseGlow"
+    )
+
+    val rainbowColors = listOf(
+        Color(0xFFFF0055), // Vibrant Crimson
+        Color(0xFFFF6600), // Electric Orange
+        Color(0xFFFFDD00), // Sun Gold
+        Color(0xFF00FF77), // Emerald Neon
+        Color(0xFF00DDFF), // Cyan Flare
+        Color(0xFF7B2CBF), // Deep Purple
+        Color(0xFFFF00CC), // Magenta Pink
+        Color(0xFFFF0055)  // Loop
+    )
+
+    val dynamicRainbowBorder = Brush.linearGradient(
+        colors = rainbowColors,
+        start = Offset(rainbowOffset % 800f, 0f),
+        end = Offset((rainbowOffset % 800f) + 400f, 400f)
+    )
+
+    val textRainbowBrush = Brush.linearGradient(
+        colors = rainbowColors,
+        start = Offset((rainbowOffset * 1.4f) % 700f, 0f),
+        end = Offset(((rainbowOffset * 1.4f) % 700f) + 350f, 80f)
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFF00AA).copy(alpha = 0.18f * pulseGlow),
+                        Color(0xFF00E5FF).copy(alpha = 0.10f * pulseGlow),
+                        Color.Transparent
+                    )
+                )
+            )
+            .border(
+                width = 2.5.dp,
+                brush = dynamicRainbowBorder,
+                shape = RoundedCornerShape(20.dp)
+            )
+            .padding(1.5.dp)
+            .testTag("rainbow_owner_card")
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Continuous Lighting Header Badge
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(dynamicRainbowBorder)
+                        .padding(horizontal = 14.dp, vertical = 5.dp)
+                ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        "CONTINUOUS LIGHTING FX",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        letterSpacing = 1.2.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Lead Introduction Text
+                Text(
+                    text = "This app is made by",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // "Owner_Official" in continuous flowing animated rainbow text
+                Text(
+                    text = "Owner_Official",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Black,
+                    style = androidx.compose.ui.text.TextStyle(brush = textRainbowBrush),
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.5.sp
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Verification mark & creator subtitle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        Icons.Default.Verified,
+                        contentDescription = "Verified Creator",
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "Lead Architect & Official Master Owner",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
 // -------------------------------------------------------------
 // FILTER CHIP & PLACEHOLDER HELPERS
 // -------------------------------------------------------------
@@ -2135,34 +2425,82 @@ fun FilterOptionChip(
 @Composable
 private fun EmptyDocumentsPlaceholder(
     onOpenScan: () -> Unit,
+    onOpenImport: () -> Unit,
     onOpenCreate: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, CamScannerTeal.copy(alpha = 0.25f), RoundedCornerShape(18.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(32.dp),
+                .padding(horizontal = 20.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.FolderOpen, contentDescription = null, tint = CamScannerTeal, modifier = Modifier.size(48.dp))
-            Spacer(modifier = Modifier.height(10.dp))
-            Text("No Documents in Repository", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Text("Scan a document or import a PDF from your phone", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .background(CamScannerTeal.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.DocumentScanner,
+                    contentDescription = null,
+                    tint = CamScannerTeal,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                "Docs Z Vault is Clean & Fresh",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                "No documents stored yet. Use the HD camera to scan papers, or import PDF files directly from your device.",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Button(
                     onClick = onOpenScan,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Scan Document")
+                    Text("Scan Sheet", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = onOpenImport,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = CamScannerTeal),
+                    border = BorderStroke(1.2.dp, CamScannerTeal),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Import PDF", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

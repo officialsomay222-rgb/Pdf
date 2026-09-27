@@ -3,6 +3,8 @@ package com.example.engine
 import android.content.Context
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import com.example.model.*
 import java.io.File
 import java.io.FileOutputStream
@@ -266,16 +268,17 @@ object PdfEngine {
 
     /**
      * Converts a collection of Bitmaps (from Camera or Gallery) into a multi-page PDF.
+     * Optionally adds an extra crisp white border/margin around the sheets.
      */
     fun createPdfFromBitmaps(
         context: Context,
         title: String,
         bitmaps: List<Bitmap>,
-        filter: String = "ORIGINAL"
+        filter: String = "ORIGINAL",
+        addWhiteBorder: Boolean = false,
+        whiteBorderPaddingPx: Int = 36
     ): File {
         val pdfDocument = PdfDocument()
-        val pageWidth = 595 // Standard A4 portrait in points (595 x 842)
-        val pageHeight = 842
 
         val colorMatrix = ColorMatrix()
         if (filter == "BW_DOCUMENT") {
@@ -303,41 +306,18 @@ object PdfEngine {
             }
         }
 
-        val headerPaint = Paint().apply {
-            color = Color.DKGRAY
-            textSize = 11f
-            isAntiAlias = true
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-
         for ((index, bmp) in bitmaps.withIndex()) {
-            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, index + 1).create()
+            val pad = if (addWhiteBorder) whiteBorderPaddingPx else 0
+            val targetW = bmp.width + (pad * 2)
+            val targetH = bmp.height + (pad * 2)
+
+            val pageInfo = PdfDocument.PageInfo.Builder(targetW, targetH, index + 1).create()
             val page = pdfDocument.startPage(pageInfo)
             val canvas = page.canvas
 
-            // Background
+            // Pure crisp white background canvas
             canvas.drawColor(Color.WHITE)
-
-            // Calculate scaled dimensions to fit within margin
-            val margin = 30f
-            val availableW = pageWidth - (margin * 2)
-            val availableH = pageHeight - (margin * 2) - 30f // space for header
-
-            val scale = minOf(availableW / bmp.width, availableH / bmp.height)
-            val destW = bmp.width * scale
-            val destH = bmp.height * scale
-
-            val destX = margin + (availableW - destW) / 2f
-            val destY = margin + 20f + (availableH - destH) / 2f
-
-            val destRect = RectF(destX, destY, destX + destW, destY + destH)
-            val srcRect = Rect(0, 0, bmp.width, bmp.height)
-
-            canvas.drawBitmap(bmp, srcRect, destRect, bitmapPaint)
-
-            // Draw clean page header & footer
-            canvas.drawText("$title • Sheet ${index + 1} of ${bitmaps.size}", margin, margin + 10f, headerPaint)
-
+            canvas.drawBitmap(bmp, pad.toFloat(), pad.toFloat(), bitmapPaint)
             pdfDocument.finishPage(page)
         }
 
@@ -535,6 +515,213 @@ object PdfEngine {
                     appendLine("Text encoding: UTF-8 Standard. Ready for export to .txt, clipboard, or Word document.")
                 }
             }
+        }
+    }
+
+    /**
+     * Renders a real PDF page into a Bitmap using Android's native PdfRenderer
+     */
+    fun renderPdfPage(filePath: String, pageIndex: Int, targetWidth: Int = 1080): Bitmap? {
+        val file = File(filePath)
+        if (!file.exists() || file.length() == 0L) return null
+        return try {
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = PdfRenderer(pfd)
+            if (pageIndex < 0 || pageIndex >= renderer.pageCount) {
+                renderer.close()
+                pfd.close()
+                return null
+            }
+            val page = renderer.openPage(pageIndex)
+            val aspect = page.width.toFloat() / page.height.toFloat()
+            val w = targetWidth.coerceIn(400, 2048)
+            val h = (w / aspect).toInt().coerceIn(400, 3000)
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(Color.WHITE)
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            page.close()
+            renderer.close()
+            pfd.close()
+            bitmap
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Retrieves actual page count from a physical PDF file
+     */
+    fun getPdfPageCount(filePath: String): Int {
+        val file = File(filePath)
+        if (!file.exists() || file.length() == 0L) return 1
+        return try {
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = PdfRenderer(pfd)
+            val count = renderer.pageCount
+            renderer.close()
+            pfd.close()
+            count.coerceAtLeast(1)
+        } catch (e: Exception) {
+            1
+        }
+    }
+
+    /**
+     * Splits a physical PDF file into two real standalone PDF files
+     */
+    fun splitRealPdf(
+        context: Context,
+        sourceFilePath: String,
+        splitAfterPage: Int,
+        baseTitle: String
+    ): Pair<File, File>? {
+        val sourceFile = File(sourceFilePath)
+        if (!sourceFile.exists()) return null
+        return try {
+            val pfd = ParcelFileDescriptor.open(sourceFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = PdfRenderer(pfd)
+            val totalPages = renderer.pageCount
+            val splitIdx = splitAfterPage.coerceIn(1, (totalPages - 1).coerceAtLeast(1))
+
+            // Part 1: pages 0 until splitIdx
+            val pdfDoc1 = PdfDocument()
+            for (i in 0 until splitIdx) {
+                val page = renderer.openPage(i)
+                val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, i + 1).create()
+                val newPage = pdfDoc1.startPage(pageInfo)
+                val bmp = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                bmp.eraseColor(Color.WHITE)
+                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                newPage.canvas.drawBitmap(bmp, 0f, 0f, null)
+                pdfDoc1.finishPage(newPage)
+                page.close()
+            }
+            val part1File = File(context.filesDir, "${baseTitle}_Part1_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(part1File).use { pdfDoc1.writeTo(it) }
+            pdfDoc1.close()
+
+            // Part 2: pages splitIdx until totalPages
+            val pdfDoc2 = PdfDocument()
+            for (i in splitIdx until totalPages) {
+                val page = renderer.openPage(i)
+                val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, i - splitIdx + 1).create()
+                val newPage = pdfDoc2.startPage(pageInfo)
+                val bmp = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                bmp.eraseColor(Color.WHITE)
+                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                newPage.canvas.drawBitmap(bmp, 0f, 0f, null)
+                pdfDoc2.finishPage(newPage)
+                page.close()
+            }
+            val part2File = File(context.filesDir, "${baseTitle}_Part2_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(part2File).use { pdfDoc2.writeTo(it) }
+            pdfDoc2.close()
+
+            renderer.close()
+            pfd.close()
+
+            Pair(part1File, part2File)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Merges multiple physical PDF files into a single consolidated PDF file
+     */
+    fun mergeRealPdfs(
+        context: Context,
+        filePaths: List<String>,
+        outputTitle: String
+    ): File? {
+        val mergedPdf = PdfDocument()
+        var globalPageIndex = 1
+        try {
+            for (path in filePaths) {
+                val f = File(path)
+                if (!f.exists()) continue
+                val pfd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)
+                val renderer = PdfRenderer(pfd)
+                for (p in 0 until renderer.pageCount) {
+                    val page = renderer.openPage(p)
+                    val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, globalPageIndex++).create()
+                    val newPage = mergedPdf.startPage(pageInfo)
+                    val bmp = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                    bmp.eraseColor(Color.WHITE)
+                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    newPage.canvas.drawBitmap(bmp, 0f, 0f, null)
+                    mergedPdf.finishPage(newPage)
+                    page.close()
+                }
+                renderer.close()
+                pfd.close()
+            }
+            val cleanName = outputTitle.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
+            val outFile = File(context.filesDir, "${cleanName}_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(outFile).use { mergedPdf.writeTo(it) }
+            mergedPdf.close()
+            return outFile
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    /**
+     * Compresses an existing physical PDF file by re-encoding pages with downscaled quality
+     */
+    fun compressPhysicalPdf(
+        context: Context,
+        sourceFilePath: String,
+        compressionLevel: String
+    ): Pair<File, Long>? {
+        val sourceFile = File(sourceFilePath)
+        if (!sourceFile.exists()) return null
+        val originalSize = sourceFile.length()
+        val (scaleFactor, jpegQuality) = when (compressionLevel) {
+            "HIGH" -> Pair(0.6f, 50)
+            "MEDIUM" -> Pair(0.75f, 70)
+            else -> Pair(0.88f, 82)
+        }
+
+        return try {
+            val pfd = ParcelFileDescriptor.open(sourceFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = PdfRenderer(pfd)
+            val optimizedPdf = PdfDocument()
+
+            for (i in 0 until renderer.pageCount) {
+                val page = renderer.openPage(i)
+                val targetW = (page.width * scaleFactor).toInt().coerceAtLeast(300)
+                val targetH = (page.height * scaleFactor).toInt().coerceAtLeast(400)
+
+                val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, i + 1).create()
+                val newPage = optimizedPdf.startPage(pageInfo)
+
+                val rawBmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+                rawBmp.eraseColor(Color.WHITE)
+                page.render(rawBmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+
+                val stream = java.io.ByteArrayOutputStream()
+                rawBmp.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)
+                val compressedBytes = stream.toByteArray()
+                val compressedBmp = BitmapFactory.decodeByteArray(compressedBytes, 0, compressedBytes.size)
+
+                val destRect = RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
+                newPage.canvas.drawBitmap(compressedBmp ?: rawBmp, null, destRect, null)
+                optimizedPdf.finishPage(newPage)
+            }
+            renderer.close()
+            pfd.close()
+
+            val outFile = File(context.filesDir, "optimized_${System.currentTimeMillis()}_${sourceFile.name}")
+            FileOutputStream(outFile).use { optimizedPdf.writeTo(it) }
+            optimizedPdf.close()
+
+            val newSize = outFile.length()
+            val saved = (originalSize - newSize).coerceAtLeast(0L)
+            Pair(outFile, saved)
+        } catch (e: Exception) {
+            null
         }
     }
 }
