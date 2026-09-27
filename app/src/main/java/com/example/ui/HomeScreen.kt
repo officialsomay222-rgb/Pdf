@@ -178,7 +178,11 @@ fun HomeScreen(
             val matchesCategory = uiState.selectedCategoryFilter == "ALL" ||
                 doc.category.equals(uiState.selectedCategoryFilter, ignoreCase = true)
 
-            matchesSearch && matchesCategory
+            val matchesFolder = uiState.selectedFolder == "All Docs" ||
+                doc.folder.equals(uiState.selectedFolder, ignoreCase = true) ||
+                (uiState.selectedFolder == "ID Cards" && doc.category == "ID_CARD")
+
+            matchesSearch && matchesCategory && matchesFolder
         }
 
         list = when (uiState.sortOption) {
@@ -539,6 +543,49 @@ private fun DocsTabHomeContent(
                         onCompress = { viewModel.openCompressorForDoc(activeDoc) },
                         onOcr = { viewModel.extractTextFromDoc(activeDoc) }
                     )
+                }
+            }
+
+            // Active Folder Filter Indicator (if a specific folder is selected)
+            if (uiState.selectedFolder != "All Docs") {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = CamScannerTeal.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = CamScannerTeal,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Folder: ${uiState.selectedFolder} (${filteredDocs.size} docs)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            TextButton(
+                                onClick = { viewModel.setSelectedFolder("All Docs") },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("Clear Filter", fontSize = 11.sp, color = CamScannerTeal, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1034,85 +1081,62 @@ private fun FeaturedDocumentCard(
         colors = CardDefaults.cardColors(
             containerColor = CamScannerTeal.copy(alpha = 0.08f)
         ),
-        border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.4f))
+        border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.35f))
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(CamScannerTeal)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text("ACTIVE WORKSPACE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(CamScannerTeal.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Description,
+                        contentDescription = null,
+                        tint = CamScannerTeal,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
                     Text(
-                        text = "Sheet ${tab.activePageIndex + 1} of ${tab.pageCount}",
-                        fontSize = 10.sp,
+                        text = doc.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Recent • Page ${tab.activePageIndex + 1} of ${tab.pageCount} • ${doc.fileSizeFormatted}",
+                        fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-
-                Button(
-                    onClick = onResume,
-                    colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(28.dp).testTag("resume_workspace_button")
-                ) {
-                    Text("Open", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(12.dp))
-                }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
-            Text(
-                text = doc.title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "${doc.category.replace("_", " ")} • ${doc.fileSizeFormatted} • Scale: 100px = ${doc.scaleRealDistance} ${doc.scaleUnit}",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Quick Actions on Active Doc
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(
-                    onClick = onExport,
-                    label = { Text("Share PDF", fontSize = 10.sp) },
-                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(12.dp), tint = CamScannerTeal) },
-                    modifier = Modifier.height(28.dp)
-                )
-                AssistChip(
-                    onClick = onCompress,
-                    label = { Text("Compress", fontSize = 10.sp) },
-                    leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null, modifier = Modifier.size(12.dp), tint = CamScannerBlue) },
-                    modifier = Modifier.height(28.dp)
-                )
-                AssistChip(
-                    onClick = onOcr,
-                    label = { Text("Extract Text", fontSize = 10.sp) },
-                    leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null, modifier = Modifier.size(12.dp), tint = CamScannerPurple) },
-                    modifier = Modifier.height(28.dp)
-                )
+            Button(
+                onClick = onResume,
+                colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.height(32.dp).testTag("resume_workspace_button")
+            ) {
+                Text("Resume", fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -2057,8 +2081,16 @@ private fun FoldersTabContent(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(folder, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                            val count = if (folder == "All Docs") {
+                                uiState.documents.size
+                            } else {
+                                uiState.documents.count {
+                                    it.folder.equals(folder, ignoreCase = true) ||
+                                        (folder == "ID Cards" && it.category == "ID_CARD")
+                                }
+                            }
                             Text(
-                                if (folder == "All Docs") "${uiState.documents.size} total items" else "Folder collection",
+                                "$count ${if (count == 1) "document" else "documents"}",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

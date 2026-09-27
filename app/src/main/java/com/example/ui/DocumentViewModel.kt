@@ -219,6 +219,32 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     /**
      * Retrieves or asynchronously renders a page bitmap for continuous multi-page scrolling
      */
+    suspend fun getPageBitmapSuspend(doc: DocumentEntity, pageIndex: Int, targetWidth: Int = 1080): Bitmap? {
+        var path = doc.filePath
+        if (path.isBlank() || !File(path).exists() || File(path).length() == 0L) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val pdf = PdfEngine.exportToPdfFile(
+                        context = getApplication(),
+                        documentTitle = doc.title,
+                        pageCount = doc.pageCount,
+                        category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
+                        annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                        measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                        formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                        watermark = doc.watermarkText
+                    )
+                    path = pdf.absolutePath
+                    val updated = doc.copy(filePath = path)
+                    docDao.updateDocument(updated)
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        }
+        return getPageBitmapSuspend(path, pageIndex, targetWidth)
+    }
+
     suspend fun getPageBitmapSuspend(filePath: String, pageIndex: Int, targetWidth: Int = 1080): Bitmap? {
         if (filePath.isBlank()) return null
         val cacheKey = "${filePath}_${pageIndex}_$targetWidth"
@@ -242,6 +268,24 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             }
             bmp
         }
+    }
+
+    /**
+     * Synchronously checks in-memory LruCaches for an already rendered page bitmap
+     */
+    fun getCachedPageBitmap(doc: DocumentEntity, pageIndex: Int, targetWidth: Int = 1080): Bitmap? {
+        val path = doc.filePath
+        if (path.isNotBlank()) {
+            val key = "${path}_${pageIndex}_$targetWidth"
+            val cached = pageBitmapCache.get(key)
+            if (cached != null && !cached.isRecycled) return cached
+            val engineCached = PdfEngine.getCachedPageBitmap(path, pageIndex, targetWidth)
+            if (engineCached != null && !engineCached.isRecycled) {
+                pageBitmapCache.put(key, engineCached)
+                return engineCached
+            }
+        }
+        return null
     }
 
     // -------------------------------------------------------------
@@ -519,23 +563,61 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun createAndOpenNewProject(title: String, category: DocumentCategory, sheetCount: Int = 3) {
-        val newDoc = DocumentEntity(
-            id = "doc-custom-" + UUID.randomUUID().toString().take(8),
-            title = title,
-            category = category.name,
-            pageCount = sheetCount.coerceAtLeast(1),
-            fileSizeFormatted = "4.2 MB",
-            createdAt = System.currentTimeMillis(),
-            modifiedAt = System.currentTimeMillis(),
-            isPasswordProtected = false,
-            watermarkText = "",
-            scaleRealDistance = 10f,
-            scalePixelDistance = 100f,
-            scaleUnit = "ft"
-        )
-        viewModelScope.launch {
+        val count = sheetCount.coerceAtLeast(1)
+        val docId = "doc-custom-" + UUID.randomUUID().toString().take(8)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val generatedPdf = try {
+                PdfEngine.exportToPdfFile(
+                    context = getApplication(),
+                    documentTitle = title,
+                    pageCount = count,
+                    category = category,
+                    annotations = emptyList(),
+                    measurements = emptyList(),
+                    formFields = emptyList(),
+                    watermark = ""
+                )
+            } catch (e: Exception) { null }
+
+            val newDoc = DocumentEntity(
+                id = docId,
+                title = title,
+                category = category.name,
+                pageCount = count,
+                fileSizeFormatted = String.format(Locale.US, "%.1f MB", count * 1.2),
+                createdAt = System.currentTimeMillis(),
+                modifiedAt = System.currentTimeMillis(),
+                isPasswordProtected = false,
+                watermarkText = "",
+                scaleRealDistance = 10f,
+                scalePixelDistance = 100f,
+                scaleUnit = "ft",
+                filePath = generatedPdf?.absolutePath ?: "",
+                folder = "Work"
+            )
             docDao.insertDocument(newDoc)
-            openDocument(newDoc)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                openDocument(newDoc)
+            }
+        }
+    }
+
+    fun moveDocumentToFolder(docId: String, folderName: String) {
+        val targetFolder = folderName.trim().ifBlank { "All Docs" }
+        viewModelScope.launch {
+            docDao.updateFolder(docId, targetFolder, System.currentTimeMillis())
+            _uiState.update { state ->
+                val updatedDocs = state.documents.map {
+                    if (it.id == docId) it.copy(folder = targetFolder) else it
+                }
+                state.copy(
+                    documents = updatedDocs,
+                    activeDocument = if (state.activeDocument?.id == docId) state.activeDocument.copy(folder = targetFolder) else state.activeDocument,
+                    isMoveFolderDialogOpen = false,
+                    docToMove = null
+                )
+            }
+            Toast.makeText(getApplication(), "Moved to \"$targetFolder\"", Toast.LENGTH_SHORT).show()
         }
     }
 

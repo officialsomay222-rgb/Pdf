@@ -232,7 +232,8 @@ data class DocumentEntity(
     val scalePixelDistance: Float = 100f,
     val scaleUnit: String = "ft",
     val filePath: String = "",
-    val uriString: String = ""
+    val uriString: String = "",
+    val folder: String = "All Docs"
 )
 
 data class DocumentWorkspaceTab(

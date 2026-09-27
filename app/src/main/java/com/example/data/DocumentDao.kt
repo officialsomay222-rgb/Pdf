@@ -29,6 +29,9 @@ interface DocumentDao {
     @Query("UPDATE documents SET title = :newTitle, modifiedAt = :timestamp WHERE id = :id")
     suspend fun renameDocument(id: String, newTitle: String, timestamp: Long)
 
+    @Query("UPDATE documents SET folder = :folder, modifiedAt = :timestamp WHERE id = :id")
+    suspend fun updateFolder(id: String, folder: String, timestamp: Long)
+
     @Query("UPDATE documents SET watermarkText = :watermark WHERE id = :id")
     suspend fun updateWatermark(id: String, watermark: String)
 

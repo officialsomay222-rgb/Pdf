@@ -17,7 +17,8 @@ object SampleDocuments {
             watermarkText = "CONFIDENTIAL - STAGE 4 BIDDING",
             scaleRealDistance = 10f,
             scalePixelDistance = 100f,
-            scaleUnit = "ft"
+            scaleUnit = "ft",
+            folder = "Work"
         ),
         DocumentEntity(
             id = "doc-contract-02",
@@ -31,7 +32,8 @@ object SampleDocuments {
             watermarkText = "LEGAL PRIVILEGED - DRAFT",
             scaleRealDistance = 10f,
             scalePixelDistance = 100f,
-            scaleUnit = "ft"
+            scaleUnit = "ft",
+            folder = "Contracts"
         ),
         DocumentEntity(
             id = "doc-inspection-03",
@@ -45,7 +47,8 @@ object SampleDocuments {
             watermarkText = "",
             scaleRealDistance = 10f,
             scalePixelDistance = 100f,
-            scaleUnit = "ft"
+            scaleUnit = "ft",
+            folder = "Work"
         )
     )
 

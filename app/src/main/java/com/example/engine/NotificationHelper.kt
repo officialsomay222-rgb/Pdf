@@ -9,7 +9,6 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.MainActivity
-import com.example.R
 
 object NotificationHelper {
     const val CHANNEL_ID = "doc_os_operations_channel"
@@ -64,7 +63,7 @@ object NotificationHelper {
 
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_PROGRESS, builder.build())
-        } catch (_: SecurityException) {
+        } catch (e: SecurityException) {
             // Handled gracefully if permission denied
         }
     }
@@ -79,7 +78,7 @@ object NotificationHelper {
         // Cancel the progress notification
         try {
             NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID_PROGRESS)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {}
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -101,7 +100,7 @@ object NotificationHelper {
 
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_COMPLETE, builder.build())
-        } catch (_: SecurityException) {
+        } catch (e: SecurityException) {
             // Handled gracefully if permission denied
         }
     }
@@ -109,6 +108,6 @@ object NotificationHelper {
     fun cancelProgress(context: Context) {
         try {
             NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID_PROGRESS)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {}
     }
 }

@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.app.Activity
 import android.graphics.Bitmap
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -11,12 +12,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,40 +31,45 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import com.example.model.DocumentEntity
 import com.example.ui.theme.CamScannerTeal
 import kotlinx.coroutines.launch
 
 enum class ReaderThemeMode {
     LIGHT_WHITE,
-    DARK_NIGHT,
     SEPIA_WARM,
+    DARK_NIGHT,
     OLED_BLACK
 }
 
 enum class ReaderViewMode {
-    CONTINUOUS_SCROLL, // Constant seamless vertical page scroll
-    SINGLE_PAGE        // Classic slide / page-by-page swiper
+    CONTINUOUS_SCROLL, // Constant seamless vertical page stream
+    SINGLE_PAGE        // Classic horizontal slide swiper
 }
 
 /**
- * Super Smooth, Professional PDF Normal Viewer.
+ * Super Smooth, Ultra-Clean & Effective PDF Reader.
  * Features:
- * - Constant continuous vertical scrolling (like Adobe Acrobat / Google Drive)
- * - Single-page swipe mode
- * - Fluid pinch-to-zoom & double-tap zoom
- * - Async caching page loader (zero UI stutter)
- * - Quick thumbnails sheet & instant page scrubber
- * - Reading themes (Light, Sepia, Dark Night, OLED Black)
+ * - Dynamic auto-hiding Top Bar: hides on scroll down, instantly reappears on slight scroll up
+ * - Status bar icons automatically adjust: dark/black text on light backgrounds, white on dark backgrounds
+ * - Uncluttered, simple UI with minimal text and sleek floating controls
+ * - Seamless continuous vertical scrolling with instant in-memory page caching
+ * - Fluid pinch-to-zoom and double-tap zoom
+ * - 1-tap reading themes (Light, Warm Sepia, Dark Night, OLED Black)
  * - 1-tap jump to the Studio Editor
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,49 +82,84 @@ fun PdfNormalReaderScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val coroutineScope = rememberCoroutineScope()
     val activeDoc = uiState.activeDocument
     val activeTab = uiState.tabs.find { it.id == uiState.activeTabId }
     val totalPages = (activeDoc?.pageCount ?: 1).coerceAtLeast(1)
 
-    // View Modes & Preferences
+    // View Preferences
     var viewMode by remember { mutableStateOf(ReaderViewMode.CONTINUOUS_SCROLL) }
     var readerTheme by remember { mutableStateOf(ReaderThemeMode.LIGHT_WHITE) }
-    var hasExtraWhiteBorder by remember { mutableStateOf(true) }
     var controlsVisible by remember { mutableStateOf(true) }
     var showThumbnailsSheet by remember { mutableStateOf(false) }
 
-    // Touch Zoom & Pan State (Viewport level)
+    // Status bar icon colors synced with reader theme:
+    // Light & Sepia -> Dark text/icons (time, battery, wifi are black)
+    // Dark & OLED -> Light text/icons (time, battery, wifi are white)
+    val isLightReader = readerTheme == ReaderThemeMode.LIGHT_WHITE || readerTheme == ReaderThemeMode.SEPIA_WARM
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window
+            if (window != null) {
+                val insetsController = WindowCompat.getInsetsController(window, view)
+                insetsController.isAppearanceLightStatusBars = isLightReader
+                insetsController.isAppearanceLightNavigationBars = isLightReader
+            }
+        }
+    }
+
+    // Touch Zoom & Pan State
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
 
     // LazyColumn scroll state for continuous mode
     val listState = rememberLazyListState()
 
-    // Single page mode state
-    var singlePageIndex by remember { mutableIntStateOf(activeTab?.activePageIndex ?: 0) }
+    // HorizontalPager state for single page mode
+    val initialPage = (activeTab?.activePageIndex ?: 0).coerceIn(0, totalPages - 1)
+    val pagerState = rememberPagerState(initialPage = initialPage) { totalPages }
 
-    // Derived current page index in continuous scroll
+    // Derive visible page index
     val visiblePageIndex by remember {
         derivedStateOf {
             if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
                 listState.firstVisibleItemIndex.coerceIn(0, totalPages - 1)
             } else {
-                singlePageIndex.coerceIn(0, totalPages - 1)
+                pagerState.currentPage.coerceIn(0, totalPages - 1)
             }
         }
     }
 
-    // Double tap zoom reset
+    // Reset zoom helper
     fun resetZoom() {
         zoomScale = 1f
         panOffset = Offset.Zero
     }
 
+    // Dynamic auto-hiding connection:
+    // Scroll down -> hide bars. Scroll slightly up -> reveal bars!
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val deltaY = available.y
+                if (deltaY < -10f) {
+                    // Scrolling down (reading further) -> smoothly hide bars
+                    if (controlsVisible) controlsVisible = false
+                } else if (deltaY > 10f) {
+                    // Scrolling slightly up -> instantly reveal bars
+                    if (!controlsVisible) controlsVisible = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    // Pinch-to-zoom multi-touch handling
     val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
         val newScale = (zoomScale * zoomChange).coerceIn(1f, 4.5f)
         zoomScale = newScale
-        if (newScale > 1f) {
+        if (newScale > 1.02f) {
             val maxPanX = (newScale - 1f) * 600f
             val maxPanY = (newScale - 1f) * 800f
             panOffset = Offset(
@@ -128,9 +172,9 @@ fun PdfNormalReaderScreen(
     }
 
     val readerBgColor = when (readerTheme) {
-        ReaderThemeMode.LIGHT_WHITE -> Color(0xFFF1F5F9)
-        ReaderThemeMode.DARK_NIGHT -> Color(0xFF13171F)
-        ReaderThemeMode.SEPIA_WARM -> Color(0xFFF8EFE1)
+        ReaderThemeMode.LIGHT_WHITE -> Color(0xFFF8FAFC)
+        ReaderThemeMode.SEPIA_WARM -> Color(0xFFF7EFE2)
+        ReaderThemeMode.DARK_NIGHT -> Color(0xFF111827)
         ReaderThemeMode.OLED_BLACK -> Color(0xFF000000)
     }
 
@@ -144,21 +188,7 @@ fun PdfNormalReaderScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .transformable(state = transformState)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            if (zoomScale > 1.1f) {
-                                resetZoom()
-                            } else {
-                                zoomScale = 2.2f
-                            }
-                        },
-                        onTap = {
-                            controlsVisible = !controlsVisible
-                        }
-                    )
-                }
+                .transformable(state = transformState, enabled = true)
                 .graphicsLayer {
                     scaleX = zoomScale
                     scaleY = zoomScale
@@ -168,56 +198,64 @@ fun PdfNormalReaderScreen(
         ) {
             if (activeDoc != null) {
                 when (viewMode) {
-                    // MODE 1: Continuous Constant Vertical Page Stream
+                    // MODE 1: Constant continuous vertical scrolling
                     ReaderViewMode.CONTINUOUS_SCROLL -> {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
+                                .nestedScroll(nestedScrollConnection)
                                 .testTag("continuous_pdf_list"),
                             contentPadding = PaddingValues(
-                                top = if (controlsVisible) 76.dp else 16.dp,
-                                bottom = if (controlsVisible) 130.dp else 24.dp,
-                                start = if (hasExtraWhiteBorder) 14.dp else 4.dp,
-                                end = if (hasExtraWhiteBorder) 14.dp else 4.dp
+                                top = 76.dp,
+                                bottom = 96.dp,
+                                start = 12.dp,
+                                end = 12.dp
                             ),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             items(totalPages, key = { "page_$it" }) { pageIdx ->
-                                ContinuousPdfPageCard(
-                                    filePath = activeDoc.filePath,
+                                CleanPdfPageCard(
+                                    document = activeDoc,
                                     pageIndex = pageIdx,
-                                    totalPages = totalPages,
-                                    hasWhiteBorder = hasExtraWhiteBorder,
                                     readerTheme = readerTheme,
-                                    viewModel = viewModel
+                                    viewModel = viewModel,
+                                    onTap = { controlsVisible = !controlsVisible },
+                                    onDoubleTap = {
+                                        if (zoomScale > 1.1f) resetZoom() else zoomScale = 2.2f
+                                    }
                                 )
                             }
                         }
                     }
 
-                    // MODE 2: Single Page Swiper View
+                    // MODE 2: Single page horizontal swiper
                     ReaderViewMode.SINGLE_PAGE -> {
-                        Box(
+                        HorizontalPager(
+                            state = pagerState,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(
-                                    top = if (controlsVisible) 76.dp else 16.dp,
-                                    bottom = if (controlsVisible) 130.dp else 24.dp,
-                                    start = if (hasExtraWhiteBorder) 14.dp else 4.dp,
-                                    end = if (hasExtraWhiteBorder) 14.dp else 4.dp
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            ContinuousPdfPageCard(
-                                filePath = activeDoc.filePath,
-                                pageIndex = singlePageIndex,
-                                totalPages = totalPages,
-                                hasWhiteBorder = hasExtraWhiteBorder,
-                                readerTheme = readerTheme,
-                                viewModel = viewModel
-                            )
+                                .nestedScroll(nestedScrollConnection)
+                                .padding(top = 76.dp, bottom = 96.dp, start = 12.dp, end = 12.dp)
+                                .testTag("single_page_pager"),
+                            pageSpacing = 16.dp
+                        ) { pageIdx ->
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CleanPdfPageCard(
+                                    document = activeDoc,
+                                    pageIndex = pageIdx,
+                                    readerTheme = readerTheme,
+                                    viewModel = viewModel,
+                                    onTap = { controlsVisible = !controlsVisible },
+                                    onDoubleTap = {
+                                        if (zoomScale > 1.1f) resetZoom() else zoomScale = 2.2f
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -228,416 +266,283 @@ fun PdfNormalReaderScreen(
             }
         }
 
-        // Floating Fast Page Pill Indicator (Appears when scrolling)
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = if (controlsVisible) 70.dp else 16.dp, end = 16.dp)
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.65f),
-                shadowElevation = 4.dp,
-                modifier = Modifier.clip(CircleShape)
-            ) {
-                Text(
-                    text = "${visiblePageIndex + 1} / $totalPages",
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-            }
-        }
-
         // -------------------------------------------------------------
-        // TOP CONTROLS BAR (Auto-hiding / Floating Glassmorphic Header)
+        // TOP APP BAR: Auto-hides on scroll down, reveals on scroll up
         // -------------------------------------------------------------
         AnimatedVisibility(
             visible = controlsVisible,
-            enter = fadeIn() + slideInVertically { -it },
-            exit = fadeOut() + slideOutVertically { -it },
+            enter = fadeIn(animationSpec = tween(180)) + slideInVertically(animationSpec = tween(220)) { -it },
+            exit = fadeOut(animationSpec = tween(180)) + slideOutVertically(animationSpec = tween(220)) { -it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding(),
-                color = Color(0xF20F172A),
-                shadowElevation = 8.dp
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                color = if (isLightReader) Color.White.copy(alpha = 0.94f) else Color(0xEE1E293B),
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 4.dp,
+                border = BorderStroke(
+                    1.dp,
+                    if (isLightReader) Color(0xFFE2E8F0) else Color.White.copy(alpha = 0.12f)
+                )
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Back Button & Document Info
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                    // Back Button
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("reader_back_button")
                     ) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .testTag("reader_back_button")
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back to home",
-                                tint = Color.White
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        Column {
-                            Text(
-                                text = activeDoc?.title ?: "PDF Reader",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(
-                                    color = CamScannerTeal.copy(alpha = 0.25f),
-                                    shape = RoundedCornerShape(4.dp)
-                                ) {
-                                    Text(
-                                        text = if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) "CONTINUOUS FLOW" else "SINGLE PAGE",
-                                        color = Color(0xFF2DD4BF),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Page ${visiblePageIndex + 1} of $totalPages",
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = if (isLightReader) Color(0xFF0F172A) else Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
 
-                    // Top Action Buttons
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Document Title & Page Count
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = activeDoc?.title ?: "Document",
+                            color = if (isLightReader) Color(0xFF0F172A) else Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Page ${visiblePageIndex + 1} of $totalPages",
+                            color = CamScannerTeal,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Reading Theme Switcher (Cycles: Light -> Sepia -> Night -> OLED)
+                    IconButton(
+                        onClick = {
+                            readerTheme = when (readerTheme) {
+                                ReaderThemeMode.LIGHT_WHITE -> ReaderThemeMode.SEPIA_WARM
+                                ReaderThemeMode.SEPIA_WARM -> ReaderThemeMode.DARK_NIGHT
+                                ReaderThemeMode.DARK_NIGHT -> ReaderThemeMode.OLED_BLACK
+                                ReaderThemeMode.OLED_BLACK -> ReaderThemeMode.LIGHT_WHITE
+                            }
+                        },
+                        modifier = Modifier.size(34.dp)
                     ) {
-                        // Thumbnails Grid Button
-                        IconButton(
-                            onClick = { showThumbnailsSheet = true },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.GridView,
-                                contentDescription = "Page thumbnails",
-                                tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
-
-                        // Prominent "Studio Editor" switch button
-                        Button(
-                            onClick = {
-                                if (activeDoc != null) {
-                                    onOpenInStudio(activeDoc)
-                                }
+                        Icon(
+                            imageVector = when (readerTheme) {
+                                ReaderThemeMode.LIGHT_WHITE -> Icons.Default.LightMode
+                                ReaderThemeMode.SEPIA_WARM -> Icons.Default.MenuBook
+                                ReaderThemeMode.DARK_NIGHT -> Icons.Default.DarkMode
+                                ReaderThemeMode.OLED_BLACK -> Icons.Default.Brightness2
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
-                            shape = RoundedCornerShape(18.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            modifier = Modifier
-                                .height(34.dp)
-                                .testTag("reader_studio_editor_button")
-                        ) {
-                            Icon(
-                                Icons.Default.Edit,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                "Studio Editor",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
+                            contentDescription = "Theme",
+                            tint = if (isLightReader) Color(0xFF475569) else Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
 
-                        // Share PDF button
-                        IconButton(
-                            onClick = {
-                                if (activeDoc != null) {
-                                    viewModel.exportAndShareDocument(activeDoc, context)
-                                }
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Share,
-                                contentDescription = "Share PDF",
-                                tint = Color.White,
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
+                    // Share Button
+                    IconButton(
+                        onClick = {
+                            if (activeDoc != null) {
+                                viewModel.openDocument(activeDoc)
+                                viewModel.exportDocument(context)
+                            }
+                        },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = if (isLightReader) Color(0xFF475569) else Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Studio Editor Button
+                    Button(
+                        onClick = {
+                            if (activeDoc != null) {
+                                onOpenInStudio(activeDoc)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CamScannerTeal,
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .height(32.dp)
+                            .testTag("open_studio_button")
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "Edit",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
         }
 
         // -------------------------------------------------------------
-        // BOTTOM FLOATING TOOLBAR (View Modes, Scrubber, Theme Toggles)
+        // BOTTOM FLOATING PILL: Clean, minimal & effective
         // -------------------------------------------------------------
         AnimatedVisibility(
             visible = controlsVisible,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
+            enter = fadeIn(animationSpec = tween(180)) + slideInVertically(animationSpec = tween(220)) { it },
+            exit = fadeOut(animationSpec = tween(180)) + slideOutVertically(animationSpec = tween(220)) { it },
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                color = Color(0xF20F172A),
-                shape = RoundedCornerShape(24.dp),
-                shadowElevation = 12.dp,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                    .padding(bottom = 14.dp),
+                shape = RoundedCornerShape(22.dp),
+                color = if (isLightReader) Color.White.copy(alpha = 0.94f) else Color(0xEE1E293B),
+                shadowElevation = 8.dp,
+                border = BorderStroke(
+                    1.dp,
+                    if (isLightReader) Color(0xFFE2E8F0) else Color.White.copy(alpha = 0.12f)
+                )
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // Secondary Toolbar Row: View Mode, Border Margin, Themes
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    // Previous Page
+                    IconButton(
+                        onClick = {
+                            val prev = (visiblePageIndex - 1).coerceAtLeast(0)
+                            if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                                coroutineScope.launch { listState.animateScrollToItem(prev) }
+                            } else {
+                                coroutineScope.launch { pagerState.animateScrollToPage(prev) }
+                            }
+                        },
+                        enabled = visiblePageIndex > 0,
+                        modifier = Modifier.size(32.dp)
                     ) {
-                        // View Mode Switcher (Continuous Vertical vs Single Page)
-                        FilterChip(
-                            selected = viewMode == ReaderViewMode.CONTINUOUS_SCROLL,
-                            onClick = {
-                                viewMode = if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
-                                    ReaderViewMode.SINGLE_PAGE
-                                } else {
-                                    ReaderViewMode.CONTINUOUS_SCROLL
-                                }
-                            },
-                            label = {
-                                Text(
-                                    if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) "Continuous Flow" else "Single Page",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) Icons.Default.VerticalDistribute else Icons.Default.ViewCarousel,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = CamScannerTeal,
-                                selectedLabelColor = Color.White,
-                                containerColor = Color.White.copy(alpha = 0.08f),
-                                labelColor = Color.White.copy(alpha = 0.8f)
-                            ),
-                            border = null,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.height(28.dp)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Previous page",
+                            tint = if (visiblePageIndex > 0) {
+                                if (isLightReader) Color(0xFF0F172A) else Color.White
+                            } else Color.Gray.copy(alpha = 0.4f),
+                            modifier = Modifier.size(16.dp)
                         )
-
-                        // White Border Frame Toggle
-                        FilterChip(
-                            selected = hasExtraWhiteBorder,
-                            onClick = { hasExtraWhiteBorder = !hasExtraWhiteBorder },
-                            label = {
-                                Text(
-                                    if (hasExtraWhiteBorder) "White Border" else "Borderless",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.BorderOuter,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF0284C7),
-                                selectedLabelColor = Color.White,
-                                containerColor = Color.White.copy(alpha = 0.08f),
-                                labelColor = Color.White.copy(alpha = 0.8f)
-                            ),
-                            border = null,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.height(28.dp)
-                        )
-
-                        // Reading Theme Bubbles (Light, Sepia, Night, OLED)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ThemeColorDot(
-                                color = Color(0xFFF1F5F9),
-                                isSelected = readerTheme == ReaderThemeMode.LIGHT_WHITE,
-                                onClick = { readerTheme = ReaderThemeMode.LIGHT_WHITE }
-                            )
-                            ThemeColorDot(
-                                color = Color(0xFFF8EFE1),
-                                isSelected = readerTheme == ReaderThemeMode.SEPIA_WARM,
-                                onClick = { readerTheme = ReaderThemeMode.SEPIA_WARM }
-                            )
-                            ThemeColorDot(
-                                color = Color(0xFF1E293B),
-                                isSelected = readerTheme == ReaderThemeMode.DARK_NIGHT,
-                                onClick = { readerTheme = ReaderThemeMode.DARK_NIGHT }
-                            )
-                            ThemeColorDot(
-                                color = Color(0xFF000000),
-                                isSelected = readerTheme == ReaderThemeMode.OLED_BLACK,
-                                onClick = { readerTheme = ReaderThemeMode.OLED_BLACK }
-                            )
-                        }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    // Page Counter Pill
+                    Text(
+                        text = "${visiblePageIndex + 1} / $totalPages",
+                        color = if (isLightReader) Color(0xFF0F172A) else Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clickable { showThumbnailsSheet = true }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
 
-                    // Multi-page Scrubber Slider
-                    if (totalPages > 1) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                "1",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 10.sp,
-                                modifier = Modifier.width(16.dp)
-                            )
-                            Slider(
-                                value = visiblePageIndex.toFloat(),
-                                onValueChange = { targetPage ->
-                                    val page = targetPage.toInt().coerceIn(0, totalPages - 1)
-                                    singlePageIndex = page
-                                    if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
-                                        coroutineScope.launch {
-                                            listState.scrollToItem(page)
-                                        }
-                                    }
-                                },
-                                valueRange = 0f..(totalPages - 1).toFloat(),
-                                steps = (totalPages - 2).coerceAtLeast(0),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = CamScannerTeal,
-                                    activeTrackColor = CamScannerTeal,
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.2f)
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(24.dp)
-                            )
-                            Text(
-                                "$totalPages",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 10.sp,
-                                textAlign = TextAlign.End,
-                                modifier = Modifier.width(18.dp)
-                            )
-                        }
+                    // Next Page
+                    IconButton(
+                        onClick = {
+                            val next = (visiblePageIndex + 1).coerceAtMost(totalPages - 1)
+                            if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                                coroutineScope.launch { listState.animateScrollToItem(next) }
+                            } else {
+                                coroutineScope.launch { pagerState.animateScrollToPage(next) }
+                            }
+                        },
+                        enabled = visiblePageIndex < totalPages - 1,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Next page",
+                            tint = if (visiblePageIndex < totalPages - 1) {
+                                if (isLightReader) Color(0xFF0F172A) else Color.White
+                            } else Color.Gray.copy(alpha = 0.4f),
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
 
-                    // Navigation Actions Row (Previous, Counter, Next, Fit)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Box(
+                        modifier = Modifier
+                            .height(18.dp)
+                            .width(1.dp)
+                            .background(if (isLightReader) Color(0xFFE2E8F0) else Color.White.copy(alpha = 0.2f))
+                    )
+
+                    // View Mode Switcher (Continuous vs Slide)
+                    IconButton(
+                        onClick = {
+                            val currentIdx = visiblePageIndex
+                            if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                                viewMode = ReaderViewMode.SINGLE_PAGE
+                                coroutineScope.launch { pagerState.scrollToPage(currentIdx) }
+                            } else {
+                                viewMode = ReaderViewMode.CONTINUOUS_SCROLL
+                                coroutineScope.launch { listState.scrollToItem(currentIdx) }
+                            }
+                        },
+                        modifier = Modifier.size(32.dp)
                     ) {
-                        // Previous Page
-                        IconButton(
-                            onClick = {
-                                val prev = (visiblePageIndex - 1).coerceAtLeast(0)
-                                singlePageIndex = prev
-                                if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
-                                    coroutineScope.launch { listState.animateScrollToItem(prev) }
-                                }
-                            },
-                            enabled = visiblePageIndex > 0,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Previous page",
-                                tint = if (visiblePageIndex > 0) Color.White else Color.White.copy(alpha = 0.2f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        Icon(
+                            imageVector = if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) Icons.Default.VerticalDistribute else Icons.Default.ViewCarousel,
+                            contentDescription = "Switch view mode",
+                            tint = CamScannerTeal,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
 
-                        // Page Counter Badge
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color.White.copy(alpha = 0.12f),
-                            modifier = Modifier.padding(horizontal = 6.dp)
-                        ) {
-                            Text(
-                                text = "Page ${visiblePageIndex + 1} of $totalPages",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                            )
-                        }
+                    // Reset Zoom / Fit Screen
+                    IconButton(
+                        onClick = { resetZoom() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.FitScreen,
+                            contentDescription = "Fit to screen",
+                            tint = if (zoomScale > 1.05f) CamScannerTeal else (if (isLightReader) Color(0xFF64748B) else Color.White.copy(alpha = 0.7f)),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
 
-                        // Next Page
-                        IconButton(
-                            onClick = {
-                                val next = (visiblePageIndex + 1).coerceAtMost(totalPages - 1)
-                                singlePageIndex = next
-                                if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
-                                    coroutineScope.launch { listState.animateScrollToItem(next) }
-                                }
-                            },
-                            enabled = visiblePageIndex < totalPages - 1,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "Next page",
-                                tint = if (visiblePageIndex < totalPages - 1) Color.White else Color.White.copy(alpha = 0.2f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        // Reset Zoom / Fit Screen
-                        IconButton(
-                            onClick = { resetZoom() },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.FitScreen,
-                                contentDescription = "Fit to screen",
-                                tint = if (zoomScale > 1.05f) CamScannerTeal else Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                    // Thumbnails Grid button
+                    IconButton(
+                        onClick = { showThumbnailsSheet = true },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.GridView,
+                            contentDescription = "Thumbnails",
+                            tint = if (isLightReader) Color(0xFF64748B) else Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }
@@ -649,8 +554,8 @@ fun PdfNormalReaderScreen(
         if (showThumbnailsSheet && activeDoc != null) {
             ModalBottomSheet(
                 onDismissRequest = { showThumbnailsSheet = false },
-                containerColor = Color(0xFF0F172A),
-                scrimColor = Color.Black.copy(alpha = 0.6f)
+                containerColor = if (isLightReader) Color.White else Color(0xFF1E293B),
+                scrimColor = Color.Black.copy(alpha = 0.5f)
             ) {
                 Column(
                     modifier = Modifier
@@ -663,13 +568,17 @@ fun PdfNormalReaderScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Document Pages ($totalPages)",
-                            color = Color.White,
+                            "Pages ($totalPages)",
+                            color = if (isLightReader) Color(0xFF0F172A) else Color.White,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                         IconButton(onClick = { showThumbnailsSheet = false }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = if (isLightReader) Color(0xFF64748B) else Color.White
+                            )
                         }
                     }
 
@@ -678,33 +587,32 @@ fun PdfNormalReaderScreen(
                     LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(150.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            .height(140.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(totalPages) { pIdx ->
                             Box(
                                 modifier = Modifier
                                     .fillMaxHeight()
-                                    .width(105.dp)
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .width(96.dp)
+                                    .clip(RoundedCornerShape(8.dp))
                                     .border(
                                         width = if (pIdx == visiblePageIndex) 2.5.dp else 1.dp,
-                                        color = if (pIdx == visiblePageIndex) CamScannerTeal else Color.White.copy(alpha = 0.2f),
-                                        shape = RoundedCornerShape(10.dp)
+                                        color = if (pIdx == visiblePageIndex) CamScannerTeal else Color.Gray.copy(alpha = 0.3f),
+                                        shape = RoundedCornerShape(8.dp)
                                     )
                                     .clickable {
-                                        singlePageIndex = pIdx
                                         if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
                                             coroutineScope.launch { listState.scrollToItem(pIdx) }
+                                        } else {
+                                            coroutineScope.launch { pagerState.scrollToPage(pIdx) }
                                         }
                                         showThumbnailsSheet = false
                                     }
                             ) {
-                                ContinuousPdfPageCard(
-                                    filePath = activeDoc.filePath,
+                                CleanPdfPageCard(
+                                    document = activeDoc,
                                     pageIndex = pIdx,
-                                    totalPages = totalPages,
-                                    hasWhiteBorder = false,
                                     readerTheme = readerTheme,
                                     viewModel = viewModel,
                                     isThumbnail = true
@@ -713,12 +621,12 @@ fun PdfNormalReaderScreen(
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
                                         .fillMaxWidth()
-                                        .background(Color.Black.copy(alpha = 0.75f))
+                                        .background(Color.Black.copy(alpha = 0.7f))
                                         .padding(vertical = 2.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "Page ${pIdx + 1}",
+                                        text = "${pIdx + 1}",
                                         color = Color.White,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
@@ -728,7 +636,7 @@ fun PdfNormalReaderScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
@@ -736,114 +644,108 @@ fun PdfNormalReaderScreen(
 }
 
 /**
- * Individual PDF Page Composable that renders asynchronously with zero UI jank
+ * Super clean, minimal PDF page card with instant zero-flicker memory cache hits
  */
 @Composable
-private fun ContinuousPdfPageCard(
-    filePath: String,
+private fun CleanPdfPageCard(
+    document: DocumentEntity,
     pageIndex: Int,
-    totalPages: Int,
-    hasWhiteBorder: Boolean,
     readerTheme: ReaderThemeMode,
     viewModel: DocumentViewModel,
-    isThumbnail: Boolean = false
+    isThumbnail: Boolean = false,
+    onTap: () -> Unit = {},
+    onDoubleTap: () -> Unit = {}
 ) {
-    var pageBitmap by remember(filePath, pageIndex) { mutableStateOf<Bitmap?>(null) }
-    var isLoading by remember(filePath, pageIndex) { mutableStateOf(true) }
+    val targetWidth = if (isThumbnail) 300 else 1080
 
-    LaunchedEffect(filePath, pageIndex) {
-        isLoading = true
-        val bmp = viewModel.getPageBitmapSuspend(
-            filePath = filePath,
-            pageIndex = pageIndex,
-            targetWidth = if (isThumbnail) 320 else 1080
-        )
-        pageBitmap = bmp
-        isLoading = false
+    // Instant cache check during initial composition to prevent shimmer flashing
+    var pageBitmap by remember(document.id, document.filePath, pageIndex) {
+        mutableStateOf(viewModel.getCachedPageBitmap(document, pageIndex, targetWidth))
+    }
+    var isLoading by remember(document.id, document.filePath, pageIndex) {
+        mutableStateOf(pageBitmap == null)
     }
 
-    val pageShape = if (hasWhiteBorder) RoundedCornerShape(8.dp) else RoundedCornerShape(2.dp)
+    LaunchedEffect(document.id, document.filePath, pageIndex) {
+        if (pageBitmap == null) {
+            isLoading = true
+            val bmp = viewModel.getPageBitmapSuspend(
+                doc = document,
+                pageIndex = pageIndex,
+                targetWidth = targetWidth
+            )
+            pageBitmap = bmp
+            isLoading = false
+        }
+    }
+
+    val pageShape = RoundedCornerShape(8.dp)
+
+    val cardBg = when (readerTheme) {
+        ReaderThemeMode.LIGHT_WHITE -> Color.White
+        ReaderThemeMode.SEPIA_WARM -> Color(0xFFFFFDF7)
+        ReaderThemeMode.DARK_NIGHT -> Color(0xFF1E293B)
+        ReaderThemeMode.OLED_BLACK -> Color(0xFF0F172A)
+    }
+
+    val borderColor = when (readerTheme) {
+        ReaderThemeMode.LIGHT_WHITE -> Color(0xFFE2E8F0)
+        ReaderThemeMode.SEPIA_WARM -> Color(0xFFE8DAC3)
+        ReaderThemeMode.DARK_NIGHT -> Color(0xFF334155)
+        ReaderThemeMode.OLED_BLACK -> Color(0xFF1E293B)
+    }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .then(
-                if (hasWhiteBorder && !isThumbnail) {
-                    Modifier
-                        .shadow(8.dp, pageShape)
-                        .background(Color.White, pageShape)
-                        .border(1.dp, Color.White, pageShape)
-                        .padding(12.dp)
-                } else if (!isThumbnail) {
-                    Modifier
-                        .shadow(4.dp, pageShape)
-                        .background(Color.White, pageShape)
-                } else {
-                    Modifier.background(Color.White)
-                }
-            ),
+                if (!isThumbnail) {
+                    Modifier.pointerInput(pageIndex) {
+                        detectTapGestures(
+                            onTap = { onTap() },
+                            onDoubleTap = { onDoubleTap() }
+                        )
+                    }
+                } else Modifier
+            )
+            .shadow(if (isThumbnail) 2.dp else 4.dp, pageShape)
+            .background(cardBg, pageShape)
+            .border(1.dp, borderColor, pageShape)
+            .padding(if (isThumbnail) 0.dp else 8.dp),
         contentAlignment = Alignment.Center
     ) {
         if (pageBitmap != null && !pageBitmap!!.isRecycled) {
             Image(
                 bitmap = pageBitmap!!.asImageBitmap(),
-                contentDescription = "PDF Page ${pageIndex + 1}",
+                contentDescription = "Page ${pageIndex + 1}",
                 contentScale = if (isThumbnail) ContentScale.Crop else ContentScale.FillWidth,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp))
             )
         } else {
-            // Elegant placeholder / loading shimmer
+            // Minimal, clean loading box
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(if (isThumbnail) 140.dp else 450.dp)
-                    .background(Color.White),
+                    .height(if (isThumbnail) 130.dp else 420.dp)
+                    .background(cardBg),
                 contentAlignment = Alignment.Center
             ) {
                 if (isLoading) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(
-                            color = CamScannerTeal,
-                            strokeWidth = 2.5.dp,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        if (!isThumbnail) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Loading page ${pageIndex + 1}...",
-                                color = Color(0xFF64748B),
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
+                    CircularProgressIndicator(
+                        color = CamScannerTeal,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(24.dp)
+                    )
                 } else {
                     Text(
                         text = "Page ${pageIndex + 1}",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 13.sp
+                        color = Color.Gray.copy(alpha = 0.7f),
+                        fontSize = 12.sp
                     )
                 }
             }
         }
     }
-}
-
-@Composable
-private fun ThemeColorDot(
-    color: Color,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(22.dp)
-            .clip(CircleShape)
-            .background(color)
-            .border(
-                width = if (isSelected) 2.dp else 0.5.dp,
-                color = if (isSelected) CamScannerTeal else Color.White.copy(alpha = 0.4f),
-                shape = CircleShape
-            )
-            .clickable { onClick() }
-    )
 }

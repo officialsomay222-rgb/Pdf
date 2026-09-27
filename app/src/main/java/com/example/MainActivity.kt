@@ -193,8 +193,7 @@ class MainActivity : ComponentActivity() {
                             folders = uiState.foldersList,
                             onDismiss = { viewModel.setMoveFolderDialogOpen(false) },
                             onSelectFolder = { folder ->
-                                viewModel.setSelectedFolder(folder)
-                                viewModel.setMoveFolderDialogOpen(false)
+                                viewModel.moveDocumentToFolder(uiState.docToMove!!.id, folder)
                             },
                             onCreateFolder = { folderName ->
                                 viewModel.createFolder(folderName)
@@ -308,6 +307,7 @@ fun DocumentOsScreen(
                 currentPage = currentPage,
                 totalPages = totalPages,
                 onNavigateHome = onNavigateHome,
+                onSwitchToReader = { viewModel.switchToReader() },
                 onOpenExport = { viewModel.exportDocument(context) },
                 onOpenPageManager = { viewModel.setPageManagerOpen(true) },
                 onOpenSecurity = { viewModel.setSecurityDialogOpen(true) },
@@ -584,6 +584,7 @@ private fun ModernPdfTopBar(
     currentPage: Int,
     totalPages: Int,
     onNavigateHome: () -> Unit,
+    onSwitchToReader: () -> Unit,
     onOpenExport: () -> Unit,
     onOpenPageManager: () -> Unit,
     onOpenSecurity: () -> Unit,
@@ -665,8 +666,20 @@ private fun ModernPdfTopBar(
                 }
             }
 
-            // Right: Primary Export, Page Assembly, Security & Overflow
+            // Right: Reader switch, Primary Export, Page Assembly, Security & Overflow
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onSwitchToReader,
+                    modifier = Modifier.size(36.dp).testTag("switch_to_reader_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MenuBook,
+                        contentDescription = "Normal Reader",
+                        tint = CamScannerTeal,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
                 IconButton(
                     onClick = onOpenExport,
                     modifier = Modifier.size(36.dp).testTag("open_export_button")

@@ -559,6 +559,20 @@ object PdfEngine {
     }
 
     /**
+     * Synchronous lookup for already cached rendered page bitmap
+     */
+    fun getCachedPageBitmap(filePath: String, pageIndex: Int, targetWidth: Int = 1080): Bitmap? {
+        val file = File(filePath)
+        if (!file.exists() || file.length() == 0L) return null
+        val cacheKey = "${file.absolutePath}_${file.lastModified()}_${pageIndex}_$targetWidth"
+        val cached = memoryPageCache.get(cacheKey)
+        if (cached != null && !cached.isRecycled) {
+            return cached
+        }
+        return null
+    }
+
+    /**
      * Clears in-memory PDF render cache when documents are updated
      */
     fun clearCache() {
