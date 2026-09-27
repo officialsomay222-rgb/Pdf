@@ -1,19 +1,16 @@
 package com.example.ui
 
-import android.content.Intent
 import android.graphics.Bitmap
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,23 +36,34 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.DocumentEntity
 import com.example.ui.theme.CamScannerTeal
-import java.io.File
+import kotlinx.coroutines.launch
 
 enum class ReaderThemeMode {
     LIGHT_WHITE,
     DARK_NIGHT,
-    SEPIA_WARM
+    SEPIA_WARM,
+    OLED_BLACK
+}
+
+enum class ReaderViewMode {
+    CONTINUOUS_SCROLL, // Constant seamless vertical page scroll
+    SINGLE_PAGE        // Classic slide / page-by-page swiper
 }
 
 /**
- * Normal PDF Reader - Ultra fast, clean, distraction-free PDF viewer.
- * Stretches page naturally over the screen with zoom, pan, and extra white border framing.
- * Includes instant 1-tap jump to the All-in-One Studio Editor.
+ * Super Smooth, Professional PDF Normal Viewer.
+ * Features:
+ * - Constant continuous vertical scrolling (like Adobe Acrobat / Google Drive)
+ * - Single-page swipe mode
+ * - Fluid pinch-to-zoom & double-tap zoom
+ * - Async caching page loader (zero UI stutter)
+ * - Quick thumbnails sheet & instant page scrubber
+ * - Reading themes (Light, Sepia, Dark Night, OLED Black)
+ * - 1-tap jump to the Studio Editor
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfNormalReaderScreen(
     uiState: DocumentUiState,
@@ -65,35 +73,51 @@ fun PdfNormalReaderScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val activeDoc = uiState.activeDocument
     val activeTab = uiState.tabs.find { it.id == uiState.activeTabId }
-    val currentPageIndex = activeTab?.activePageIndex ?: 0
     val totalPages = (activeDoc?.pageCount ?: 1).coerceAtLeast(1)
 
-    val renderedBitmap by viewModel.renderedPageBitmap.collectAsStateWithLifecycle()
+    // View Modes & Preferences
+    var viewMode by remember { mutableStateOf(ReaderViewMode.CONTINUOUS_SCROLL) }
+    var readerTheme by remember { mutableStateOf(ReaderThemeMode.LIGHT_WHITE) }
+    var hasExtraWhiteBorder by remember { mutableStateOf(true) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var showThumbnailsSheet by remember { mutableStateOf(false) }
 
-    // Touch zoom & pan state
+    // Touch Zoom & Pan State (Viewport level)
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
-    var controlsVisible by remember { mutableStateOf(true) }
 
-    // Display preferences: Screen Stretch & Extra White Border
-    var isStretchToScreen by remember { mutableStateOf(true) }
-    var hasExtraWhiteBorder by remember { mutableStateOf(true) }
-    var readerTheme by remember { mutableStateOf(ReaderThemeMode.LIGHT_WHITE) }
+    // LazyColumn scroll state for continuous mode
+    val listState = rememberLazyListState()
 
-    // Reset zoom when switching pages
-    LaunchedEffect(currentPageIndex, activeDoc?.id) {
+    // Single page mode state
+    var singlePageIndex by remember { mutableIntStateOf(activeTab?.activePageIndex ?: 0) }
+
+    // Derived current page index in continuous scroll
+    val visiblePageIndex by remember {
+        derivedStateOf {
+            if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                listState.firstVisibleItemIndex.coerceIn(0, totalPages - 1)
+            } else {
+                singlePageIndex.coerceIn(0, totalPages - 1)
+            }
+        }
+    }
+
+    // Double tap zoom reset
+    fun resetZoom() {
         zoomScale = 1f
         panOffset = Offset.Zero
     }
 
     val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
-        val newScale = (zoomScale * zoomChange).coerceIn(1f, 5.0f)
+        val newScale = (zoomScale * zoomChange).coerceIn(1f, 4.5f)
         zoomScale = newScale
         if (newScale > 1f) {
-            val maxPanX = (newScale - 1f) * 700f
-            val maxPanY = (newScale - 1f) * 900f
+            val maxPanX = (newScale - 1f) * 600f
+            val maxPanY = (newScale - 1f) * 800f
             panOffset = Offset(
                 x = (panOffset.x + offsetChange.x).coerceIn(-maxPanX, maxPanX),
                 y = (panOffset.y + offsetChange.y).coerceIn(-maxPanY, maxPanY)
@@ -104,9 +128,10 @@ fun PdfNormalReaderScreen(
     }
 
     val readerBgColor = when (readerTheme) {
-        ReaderThemeMode.LIGHT_WHITE -> Color(0xFFF1F3F5)
-        ReaderThemeMode.DARK_NIGHT -> Color(0xFF14171A)
-        ReaderThemeMode.SEPIA_WARM -> Color(0xFFFBF0D9)
+        ReaderThemeMode.LIGHT_WHITE -> Color(0xFFF1F5F9)
+        ReaderThemeMode.DARK_NIGHT -> Color(0xFF13171F)
+        ReaderThemeMode.SEPIA_WARM -> Color(0xFFF8EFE1)
+        ReaderThemeMode.OLED_BLACK -> Color(0xFF000000)
     }
 
     Box(
@@ -115,8 +140,8 @@ fun PdfNormalReaderScreen(
             .background(readerBgColor)
             .testTag("pdf_normal_reader_screen")
     ) {
-        // PDF Page Canvas Viewport - Stretches smoothly over screen
-        BoxWithConstraints(
+        // Main Viewport Container with Pinch & Pan
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .transformable(state = transformState)
@@ -124,90 +149,114 @@ fun PdfNormalReaderScreen(
                     detectTapGestures(
                         onDoubleTap = {
                             if (zoomScale > 1.1f) {
-                                zoomScale = 1f
-                                panOffset = Offset.Zero
+                                resetZoom()
                             } else {
-                                zoomScale = 2.4f
+                                zoomScale = 2.2f
                             }
                         },
                         onTap = {
                             controlsVisible = !controlsVisible
                         }
                     )
-                },
-            contentAlignment = Alignment.Center
+                }
+                .graphicsLayer {
+                    scaleX = zoomScale
+                    scaleY = zoomScale
+                    translationX = panOffset.x
+                    translationY = panOffset.y
+                }
         ) {
-            if (renderedBitmap != null && !renderedBitmap!!.isRecycled) {
-                // PDF Page Container with Stretch and Extra Whiter Border
-                val borderPadding = if (hasExtraWhiteBorder) 14.dp else 0.dp
-                val pageShape = if (hasExtraWhiteBorder) RoundedCornerShape(6.dp) else RoundedCornerShape(0.dp)
-
-                Box(
-                    modifier = Modifier
-                        .then(
-                            if (isStretchToScreen) Modifier.fillMaxWidth() else Modifier.wrapContentSize()
-                        )
-                        .padding(horizontal = if (hasExtraWhiteBorder) 10.dp else 0.dp)
-                        .graphicsLayer {
-                            scaleX = zoomScale
-                            scaleY = zoomScale
-                            translationX = panOffset.x
-                            translationY = panOffset.y
-                        }
-                        .then(
-                            if (hasExtraWhiteBorder) {
-                                Modifier
-                                    .shadow(12.dp, pageShape)
-                                    .background(Color.White, pageShape)
-                                    .border(2.dp, Color.White, pageShape)
-                                    .padding(borderPadding)
-                            } else {
-                                Modifier.shadow(4.dp)
+            if (activeDoc != null) {
+                when (viewMode) {
+                    // MODE 1: Continuous Constant Vertical Page Stream
+                    ReaderViewMode.CONTINUOUS_SCROLL -> {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("continuous_pdf_list"),
+                            contentPadding = PaddingValues(
+                                top = if (controlsVisible) 76.dp else 16.dp,
+                                bottom = if (controlsVisible) 130.dp else 24.dp,
+                                start = if (hasExtraWhiteBorder) 14.dp else 4.dp,
+                                end = if (hasExtraWhiteBorder) 14.dp else 4.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            items(totalPages, key = { "page_$it" }) { pageIdx ->
+                                ContinuousPdfPageCard(
+                                    filePath = activeDoc.filePath,
+                                    pageIndex = pageIdx,
+                                    totalPages = totalPages,
+                                    hasWhiteBorder = hasExtraWhiteBorder,
+                                    readerTheme = readerTheme,
+                                    viewModel = viewModel
+                                )
                             }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        bitmap = renderedBitmap!!.asImageBitmap(),
-                        contentDescription = "PDF Page ${currentPageIndex + 1}",
-                        contentScale = if (isStretchToScreen) ContentScale.FillWidth else ContentScale.Fit,
-                        modifier = if (isStretchToScreen) {
-                            Modifier.fillMaxWidth()
-                        } else {
-                            Modifier.fillMaxHeight(0.85f).fillMaxWidth()
                         }
-                    )
+                    }
+
+                    // MODE 2: Single Page Swiper View
+                    ReaderViewMode.SINGLE_PAGE -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    top = if (controlsVisible) 76.dp else 16.dp,
+                                    bottom = if (controlsVisible) 130.dp else 24.dp,
+                                    start = if (hasExtraWhiteBorder) 14.dp else 4.dp,
+                                    end = if (hasExtraWhiteBorder) 14.dp else 4.dp
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ContinuousPdfPageCard(
+                                filePath = activeDoc.filePath,
+                                pageIndex = singlePageIndex,
+                                totalPages = totalPages,
+                                hasWhiteBorder = hasExtraWhiteBorder,
+                                readerTheme = readerTheme,
+                                viewModel = viewModel
+                            )
+                        }
+                    }
                 }
             } else {
-                // Clean fast loading indicator
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator(
-                        color = CamScannerTeal,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(38.dp)
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "Opening Page ${currentPageIndex + 1}...",
-                        color = if (readerTheme == ReaderThemeMode.DARK_NIGHT) Color.White else Color(0xFF1E293B),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = activeDoc?.title ?: "Document",
-                        color = if (readerTheme == ReaderThemeMode.DARK_NIGHT) Color.White.copy(alpha = 0.6f) else Color(0xFF64748B),
-                        fontSize = 12.sp
-                    )
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = CamScannerTeal)
                 }
             }
         }
 
-        // Top Header Bar (Auto-hiding / Floating)
+        // Floating Fast Page Pill Indicator (Appears when scrolling)
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = if (controlsVisible) 70.dp else 16.dp, end = 16.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.65f),
+                shadowElevation = 4.dp,
+                modifier = Modifier.clip(CircleShape)
+            ) {
+                Text(
+                    text = "${visiblePageIndex + 1} / $totalPages",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        // -------------------------------------------------------------
+        // TOP CONTROLS BAR (Auto-hiding / Floating Glassmorphic Header)
+        // -------------------------------------------------------------
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn() + slideInVertically { -it },
@@ -218,8 +267,8 @@ fun PdfNormalReaderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding(),
-                color = Color(0xEE111827),
-                shadowElevation = 6.dp
+                color = Color(0xF20F172A),
+                shadowElevation = 8.dp
             ) {
                 Row(
                     modifier = Modifier
@@ -228,14 +277,16 @@ fun PdfNormalReaderScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Back & Document Info
+                    // Back Button & Document Info
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
                         IconButton(
                             onClick = onBack,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("reader_back_button")
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
@@ -261,7 +312,7 @@ fun PdfNormalReaderScreen(
                                     shape = RoundedCornerShape(4.dp)
                                 ) {
                                     Text(
-                                        text = "NORMAL READER",
+                                        text = if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) "CONTINUOUS FLOW" else "SINGLE PAGE",
                                         color = Color(0xFF2DD4BF),
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
@@ -270,8 +321,8 @@ fun PdfNormalReaderScreen(
                                 }
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Page ${currentPageIndex + 1} of $totalPages",
-                                    color = Color.White.copy(alpha = 0.8f),
+                                    text = "Page ${visiblePageIndex + 1} of $totalPages",
+                                    color = Color.White.copy(alpha = 0.75f),
                                     fontSize = 11.sp
                                 )
                             }
@@ -283,7 +334,20 @@ fun PdfNormalReaderScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Prominent "All-in-One Studio Editor" switch button
+                        // Thumbnails Grid Button
+                        IconButton(
+                            onClick = { showThumbnailsSheet = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.GridView,
+                                contentDescription = "Page thumbnails",
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Prominent "Studio Editor" switch button
                         Button(
                             onClick = {
                                 if (activeDoc != null) {
@@ -293,7 +357,9 @@ fun PdfNormalReaderScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
                             shape = RoundedCornerShape(18.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
+                            modifier = Modifier
+                                .height(34.dp)
+                                .testTag("reader_studio_editor_button")
                         ) {
                             Icon(
                                 Icons.Default.Edit,
@@ -317,13 +383,13 @@ fun PdfNormalReaderScreen(
                                     viewModel.exportAndShareDocument(activeDoc, context)
                                 }
                             },
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 Icons.Default.Share,
                                 contentDescription = "Share PDF",
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
@@ -331,7 +397,9 @@ fun PdfNormalReaderScreen(
             }
         }
 
-        // Bottom Controls Bar (Page navigation, scrubber & view options)
+        // -------------------------------------------------------------
+        // BOTTOM FLOATING TOOLBAR (View Modes, Scrubber, Theme Toggles)
+        // -------------------------------------------------------------
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn() + slideInVertically { it },
@@ -342,33 +410,45 @@ fun PdfNormalReaderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                color = Color(0xEE111827),
-                shape = RoundedCornerShape(22.dp),
-                shadowElevation = 10.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                color = Color(0xF20F172A),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    // Secondary Toolbar: Stretch, White Border, Theme Toggles
+                    // Secondary Toolbar Row: View Mode, Border Margin, Themes
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Stretch to Screen Toggle
+                        // View Mode Switcher (Continuous Vertical vs Single Page)
                         FilterChip(
-                            selected = isStretchToScreen,
-                            onClick = { isStretchToScreen = !isStretchToScreen },
-                            label = { Text(if (isStretchToScreen) "Stretch On" else "Stretch Off", fontSize = 10.sp) },
+                            selected = viewMode == ReaderViewMode.CONTINUOUS_SCROLL,
+                            onClick = {
+                                viewMode = if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                                    ReaderViewMode.SINGLE_PAGE
+                                } else {
+                                    ReaderViewMode.CONTINUOUS_SCROLL
+                                }
+                            },
+                            label = {
+                                Text(
+                                    if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) "Continuous Flow" else "Single Page",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            },
                             leadingIcon = {
                                 Icon(
-                                    Icons.Default.AspectRatio,
+                                    if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) Icons.Default.VerticalDistribute else Icons.Default.ViewCarousel,
                                     contentDescription = null,
-                                    modifier = Modifier.size(12.dp)
+                                    modifier = Modifier.size(13.dp)
                                 )
                             },
                             colors = FilterChipDefaults.filterChipColors(
@@ -382,16 +462,22 @@ fun PdfNormalReaderScreen(
                             modifier = Modifier.height(28.dp)
                         )
 
-                        // Extra White Border Toggle
+                        // White Border Frame Toggle
                         FilterChip(
                             selected = hasExtraWhiteBorder,
                             onClick = { hasExtraWhiteBorder = !hasExtraWhiteBorder },
-                            label = { Text(if (hasExtraWhiteBorder) "White Border" else "Borderless", fontSize = 10.sp) },
+                            label = {
+                                Text(
+                                    if (hasExtraWhiteBorder) "White Border" else "Borderless",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            },
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.BorderOuter,
                                     contentDescription = null,
-                                    modifier = Modifier.size(12.dp)
+                                    modifier = Modifier.size(13.dp)
                                 )
                             },
                             colors = FilterChipDefaults.filterChipColors(
@@ -405,59 +491,37 @@ fun PdfNormalReaderScreen(
                             modifier = Modifier.height(28.dp)
                         )
 
-                        // Reader Theme Switcher (Light / Dark / Sepia)
+                        // Reading Theme Bubbles (Light, Sepia, Night, OLED)
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                                    .border(
-                                        width = if (readerTheme == ReaderThemeMode.LIGHT_WHITE) 2.dp else 0.dp,
-                                        color = CamScannerTeal,
-                                        shape = CircleShape
-                                    )
-                                    .pointerInput(Unit) {
-                                        detectTapGestures { readerTheme = ReaderThemeMode.LIGHT_WHITE }
-                                    }
+                            ThemeColorDot(
+                                color = Color(0xFFF1F5F9),
+                                isSelected = readerTheme == ReaderThemeMode.LIGHT_WHITE,
+                                onClick = { readerTheme = ReaderThemeMode.LIGHT_WHITE }
                             )
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF22262B))
-                                    .border(
-                                        width = if (readerTheme == ReaderThemeMode.DARK_NIGHT) 2.dp else 0.dp,
-                                        color = CamScannerTeal,
-                                        shape = CircleShape
-                                    )
-                                    .pointerInput(Unit) {
-                                        detectTapGestures { readerTheme = ReaderThemeMode.DARK_NIGHT }
-                                    }
+                            ThemeColorDot(
+                                color = Color(0xFFF8EFE1),
+                                isSelected = readerTheme == ReaderThemeMode.SEPIA_WARM,
+                                onClick = { readerTheme = ReaderThemeMode.SEPIA_WARM }
                             )
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFFBF0D9))
-                                    .border(
-                                        width = if (readerTheme == ReaderThemeMode.SEPIA_WARM) 2.dp else 0.dp,
-                                        color = CamScannerTeal,
-                                        shape = CircleShape
-                                    )
-                                    .pointerInput(Unit) {
-                                        detectTapGestures { readerTheme = ReaderThemeMode.SEPIA_WARM }
-                                    }
+                            ThemeColorDot(
+                                color = Color(0xFF1E293B),
+                                isSelected = readerTheme == ReaderThemeMode.DARK_NIGHT,
+                                onClick = { readerTheme = ReaderThemeMode.DARK_NIGHT }
+                            )
+                            ThemeColorDot(
+                                color = Color(0xFF000000),
+                                isSelected = readerTheme == ReaderThemeMode.OLED_BLACK,
+                                onClick = { readerTheme = ReaderThemeMode.OLED_BLACK }
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Page scrubber slider (if multi-page)
+                    // Multi-page Scrubber Slider
                     if (totalPages > 1) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -467,11 +531,19 @@ fun PdfNormalReaderScreen(
                                 "1",
                                 color = Color.White.copy(alpha = 0.6f),
                                 fontSize = 10.sp,
-                                modifier = Modifier.width(18.dp)
+                                modifier = Modifier.width(16.dp)
                             )
                             Slider(
-                                value = currentPageIndex.toFloat(),
-                                onValueChange = { viewModel.setActivePage(it.toInt()) },
+                                value = visiblePageIndex.toFloat(),
+                                onValueChange = { targetPage ->
+                                    val page = targetPage.toInt().coerceIn(0, totalPages - 1)
+                                    singlePageIndex = page
+                                    if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                                        coroutineScope.launch {
+                                            listState.scrollToItem(page)
+                                        }
+                                    }
+                                },
                                 valueRange = 0f..(totalPages - 1).toFloat(),
                                 steps = (totalPages - 2).coerceAtLeast(0),
                                 colors = SliderDefaults.colors(
@@ -481,7 +553,7 @@ fun PdfNormalReaderScreen(
                                 ),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(26.dp)
+                                    .height(24.dp)
                             )
                             Text(
                                 "$totalPages",
@@ -493,7 +565,7 @@ fun PdfNormalReaderScreen(
                         }
                     }
 
-                    // Navigation Actions Row
+                    // Navigation Actions Row (Previous, Counter, Next, Fit)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -502,17 +574,19 @@ fun PdfNormalReaderScreen(
                         // Previous Page
                         IconButton(
                             onClick = {
-                                if (currentPageIndex > 0) {
-                                    viewModel.setActivePage(currentPageIndex - 1)
+                                val prev = (visiblePageIndex - 1).coerceAtLeast(0)
+                                singlePageIndex = prev
+                                if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                                    coroutineScope.launch { listState.animateScrollToItem(prev) }
                                 }
                             },
-                            enabled = currentPageIndex > 0,
-                            modifier = Modifier.size(34.dp)
+                            enabled = visiblePageIndex > 0,
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Previous page",
-                                tint = if (currentPageIndex > 0) Color.White else Color.White.copy(alpha = 0.25f),
+                                tint = if (visiblePageIndex > 0) Color.White else Color.White.copy(alpha = 0.2f),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -521,42 +595,41 @@ fun PdfNormalReaderScreen(
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = Color.White.copy(alpha = 0.12f),
-                            modifier = Modifier.padding(horizontal = 8.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp)
                         ) {
                             Text(
-                                text = "Page ${currentPageIndex + 1} of $totalPages",
+                                text = "Page ${visiblePageIndex + 1} of $totalPages",
                                 color = Color.White,
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                             )
                         }
 
                         // Next Page
                         IconButton(
                             onClick = {
-                                if (currentPageIndex < totalPages - 1) {
-                                    viewModel.setActivePage(currentPageIndex + 1)
+                                val next = (visiblePageIndex + 1).coerceAtMost(totalPages - 1)
+                                singlePageIndex = next
+                                if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                                    coroutineScope.launch { listState.animateScrollToItem(next) }
                                 }
                             },
-                            enabled = currentPageIndex < totalPages - 1,
-                            modifier = Modifier.size(34.dp)
+                            enabled = visiblePageIndex < totalPages - 1,
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = "Next page",
-                                tint = if (currentPageIndex < totalPages - 1) Color.White else Color.White.copy(alpha = 0.25f),
+                                tint = if (visiblePageIndex < totalPages - 1) Color.White else Color.White.copy(alpha = 0.2f),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
 
                         // Reset Zoom / Fit Screen
                         IconButton(
-                            onClick = {
-                                zoomScale = 1f
-                                panOffset = Offset.Zero
-                            },
-                            modifier = Modifier.size(34.dp)
+                            onClick = { resetZoom() },
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
                                 Icons.Default.FitScreen,
@@ -569,5 +642,208 @@ fun PdfNormalReaderScreen(
                 }
             }
         }
+
+        // -------------------------------------------------------------
+        // QUICK THUMBNAILS BOTTOM SHEET
+        // -------------------------------------------------------------
+        if (showThumbnailsSheet && activeDoc != null) {
+            ModalBottomSheet(
+                onDismissRequest = { showThumbnailsSheet = false },
+                containerColor = Color(0xFF0F172A),
+                scrimColor = Color.Black.copy(alpha = 0.6f)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Document Pages ($totalPages)",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        IconButton(onClick = { showThumbnailsSheet = false }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(totalPages) { pIdx ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .width(105.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .border(
+                                        width = if (pIdx == visiblePageIndex) 2.5.dp else 1.dp,
+                                        color = if (pIdx == visiblePageIndex) CamScannerTeal else Color.White.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable {
+                                        singlePageIndex = pIdx
+                                        if (viewMode == ReaderViewMode.CONTINUOUS_SCROLL) {
+                                            coroutineScope.launch { listState.scrollToItem(pIdx) }
+                                        }
+                                        showThumbnailsSheet = false
+                                    }
+                            ) {
+                                ContinuousPdfPageCard(
+                                    filePath = activeDoc.filePath,
+                                    pageIndex = pIdx,
+                                    totalPages = totalPages,
+                                    hasWhiteBorder = false,
+                                    readerTheme = readerTheme,
+                                    viewModel = viewModel,
+                                    isThumbnail = true
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .background(Color.Black.copy(alpha = 0.75f))
+                                        .padding(vertical = 2.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Page ${pIdx + 1}",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+            }
+        }
     }
+}
+
+/**
+ * Individual PDF Page Composable that renders asynchronously with zero UI jank
+ */
+@Composable
+private fun ContinuousPdfPageCard(
+    filePath: String,
+    pageIndex: Int,
+    totalPages: Int,
+    hasWhiteBorder: Boolean,
+    readerTheme: ReaderThemeMode,
+    viewModel: DocumentViewModel,
+    isThumbnail: Boolean = false
+) {
+    var pageBitmap by remember(filePath, pageIndex) { mutableStateOf<Bitmap?>(null) }
+    var isLoading by remember(filePath, pageIndex) { mutableStateOf(true) }
+
+    LaunchedEffect(filePath, pageIndex) {
+        isLoading = true
+        val bmp = viewModel.getPageBitmapSuspend(
+            filePath = filePath,
+            pageIndex = pageIndex,
+            targetWidth = if (isThumbnail) 320 else 1080
+        )
+        pageBitmap = bmp
+        isLoading = false
+    }
+
+    val pageShape = if (hasWhiteBorder) RoundedCornerShape(8.dp) else RoundedCornerShape(2.dp)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (hasWhiteBorder && !isThumbnail) {
+                    Modifier
+                        .shadow(8.dp, pageShape)
+                        .background(Color.White, pageShape)
+                        .border(1.dp, Color.White, pageShape)
+                        .padding(12.dp)
+                } else if (!isThumbnail) {
+                    Modifier
+                        .shadow(4.dp, pageShape)
+                        .background(Color.White, pageShape)
+                } else {
+                    Modifier.background(Color.White)
+                }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (pageBitmap != null && !pageBitmap!!.isRecycled) {
+            Image(
+                bitmap = pageBitmap!!.asImageBitmap(),
+                contentDescription = "PDF Page ${pageIndex + 1}",
+                contentScale = if (isThumbnail) ContentScale.Crop else ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            // Elegant placeholder / loading shimmer
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(if (isThumbnail) 140.dp else 450.dp)
+                    .background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLoading) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            color = CamScannerTeal,
+                            strokeWidth = 2.5.dp,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        if (!isThumbnail) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Loading page ${pageIndex + 1}...",
+                                color = Color(0xFF64748B),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Page ${pageIndex + 1}",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeColorDot(
+    color: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(color)
+            .border(
+                width = if (isSelected) 2.dp else 0.5.dp,
+                color = if (isSelected) CamScannerTeal else Color.White.copy(alpha = 0.4f),
+                shape = CircleShape
+            )
+            .clickable { onClick() }
+    )
 }

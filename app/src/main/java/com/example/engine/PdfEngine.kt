@@ -518,12 +518,21 @@ object PdfEngine {
         }
     }
 
+    // High performance in-memory LRU cache for rendered PDF pages (up to 60 pages)
+    private val memoryPageCache = android.util.LruCache<String, Bitmap>(60)
+
     /**
-     * Renders a real PDF page into a Bitmap using Android's native PdfRenderer
+     * Renders a real PDF page into a Bitmap using Android's native PdfRenderer with memory caching
      */
     fun renderPdfPage(filePath: String, pageIndex: Int, targetWidth: Int = 1080): Bitmap? {
         val file = File(filePath)
         if (!file.exists() || file.length() == 0L) return null
+        val cacheKey = "${file.absolutePath}_${file.lastModified()}_${pageIndex}_$targetWidth"
+        val cached = memoryPageCache.get(cacheKey)
+        if (cached != null && !cached.isRecycled) {
+            return cached
+        }
+
         return try {
             val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val renderer = PdfRenderer(pfd)
@@ -534,18 +543,26 @@ object PdfEngine {
             }
             val page = renderer.openPage(pageIndex)
             val aspect = page.width.toFloat() / page.height.toFloat()
-            val w = targetWidth.coerceIn(400, 2048)
-            val h = (w / aspect).toInt().coerceIn(400, 3000)
+            val w = targetWidth.coerceIn(300, 2048)
+            val h = (w / aspect).toInt().coerceIn(300, 3200)
             val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             bitmap.eraseColor(Color.WHITE)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             page.close()
             renderer.close()
             pfd.close()
+            memoryPageCache.put(cacheKey, bitmap)
             bitmap
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Clears in-memory PDF render cache when documents are updated
+     */
+    fun clearCache() {
+        memoryPageCache.evictAll()
     }
 
     /**

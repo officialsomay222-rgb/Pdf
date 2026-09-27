@@ -216,6 +216,34 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Retrieves or asynchronously renders a page bitmap for continuous multi-page scrolling
+     */
+    suspend fun getPageBitmapSuspend(filePath: String, pageIndex: Int, targetWidth: Int = 1080): Bitmap? {
+        if (filePath.isBlank()) return null
+        val cacheKey = "${filePath}_${pageIndex}_$targetWidth"
+        val cached = pageBitmapCache.get(cacheKey)
+        if (cached != null && !cached.isRecycled) {
+            return cached
+        }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val f = File(filePath)
+            if (!f.exists() || f.length() == 0L) return@withContext null
+            val isImg = filePath.endsWith(".jpg", true) || filePath.endsWith(".png", true) || filePath.endsWith(".jpeg", true)
+            val bmp = if (isImg) {
+                try {
+                    BitmapFactory.decodeFile(filePath)
+                } catch (e: Exception) { null }
+            } else {
+                PdfEngine.renderPdfPage(filePath, pageIndex, targetWidth)
+            }
+            if (bmp != null) {
+                pageBitmapCache.put(cacheKey, bmp)
+            }
+            bmp
+        }
+    }
+
     // -------------------------------------------------------------
     // External Intent Handling (Open PDF with Docs Z)
     // -------------------------------------------------------------
