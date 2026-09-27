@@ -214,15 +214,14 @@ class MainActivity : ComponentActivity() {
                     // 8. PDF Compressor Studio Dialog
                     if (uiState.isCompressorOpen) {
                         val targetDoc = uiState.compressTargetDoc ?: uiState.activeDocument ?: uiState.documents.firstOrNull()
-                        if (targetDoc != null) {
-                            PdfCompressorDialog(
-                                document = targetDoc,
-                                onDismiss = { viewModel.setCompressorOpen(false) },
-                                onCompress = { doc, quality ->
-                                    viewModel.compressDocument(doc, quality, context)
-                                }
-                            )
-                        }
+                        PdfCompressorDialog(
+                            document = targetDoc,
+                            allDocuments = uiState.documents,
+                            onDismiss = { viewModel.setCompressorOpen(false) },
+                            onCompress = { doc, quality ->
+                                viewModel.compressDocument(doc, quality, context)
+                            }
+                        )
                     }
 
                     // 9. Blank Project / Blueprint Dialog
@@ -605,13 +604,13 @@ private fun ModernPdfTopBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Left: Back Home Arrow & Document Information
             Row(
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
@@ -632,15 +631,14 @@ private fun ModernPdfTopBar(
 
                 Spacer(modifier = Modifier.width(10.dp))
 
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = title,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 170.dp)
+                        overflow = TextOverflow.Ellipsis
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
@@ -658,7 +656,7 @@ private fun ModernPdfTopBar(
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Page $currentPage of $totalPages • $fileSize",
+                            text = "p.$currentPage/$totalPages • $fileSize",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 10.sp
                         )
@@ -666,7 +664,9 @@ private fun ModernPdfTopBar(
                 }
             }
 
-            // Right: Reader switch, Primary Export, Page Assembly, Security & Overflow
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // Right: Reader switch, Share, and Tools Menu
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = onSwitchToReader,
@@ -692,34 +692,10 @@ private fun ModernPdfTopBar(
                     )
                 }
 
-                IconButton(
-                    onClick = onOpenPageManager,
-                    modifier = Modifier.size(36.dp).testTag("open_page_assembly_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoStories,
-                        contentDescription = "Visual Page Assembly",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = onOpenSecurity,
-                    modifier = Modifier.size(36.dp).testTag("open_security_dialog_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = "Security Policies",
-                        tint = Color(0xFFF59E0B),
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-
                 Box {
                     IconButton(
                         onClick = onToggleMoreMenu,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(36.dp).testTag("top_bar_more_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
@@ -733,6 +709,22 @@ private fun ModernPdfTopBar(
                         expanded = showMoreMenu,
                         onDismissRequest = onDismissMoreMenu
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("Visual Page Assembly") },
+                            leadingIcon = { Icon(Icons.Default.AutoStories, contentDescription = null, tint = CamScannerTeal) },
+                            onClick = {
+                                onDismissMoreMenu()
+                                onOpenPageManager()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Security Policies") },
+                            leadingIcon = { Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFFF59E0B)) },
+                            onClick = {
+                                onDismissMoreMenu()
+                                onOpenSecurity()
+                            }
+                        )
                         DropdownMenuItem(
                             text = { Text("Compress PDF") },
                             leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null, tint = CamScannerTeal) },

@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.engine.PdfEngine
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.ui.theme.*
+import com.example.ui.theme.CamScannerTeal
 
 @Composable
 fun PdfMakerStudioDialog(
@@ -43,7 +44,7 @@ fun PdfMakerStudioDialog(
     onCreatePdf: (title: String, bitmaps: List<Bitmap>, filter: String) -> Unit
 ) {
     val context = LocalContext.current
-    var projectTitle by remember { mutableStateOf("Scanned_Document_${System.currentTimeMillis() % 10000}") }
+    var projectTitle by remember { mutableStateOf("Scan_${System.currentTimeMillis() % 10000}") }
     val capturedImages = remember { mutableStateListOf<Bitmap>() }
     var selectedFilter by remember { mutableStateOf("ORIGINAL") } // ORIGINAL, BW_DOCUMENT, GRAYSCALE
 
@@ -57,20 +58,18 @@ fun PdfMakerStudioDialog(
         }
     )
 
-    // Gallery Photo Picker (Zero-permission modern Android Photo Picker)
+    // Gallery Photo Picker
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 15),
         onResult = { uris ->
             uris.forEach { uri ->
                 try {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        val bmp = BitmapFactory.decodeStream(stream)
-                        if (bmp != null) {
-                            capturedImages.add(bmp)
-                        }
+                    val bmp = PdfEngine.decodeSampledBitmapFromUri(context, uri, targetMaxDim = 1400)
+                    if (bmp != null) {
+                        capturedImages.add(bmp)
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(context, "Could not load image: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -82,11 +81,11 @@ fun PdfMakerStudioDialog(
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
+                .fillMaxWidth(0.95f)
                 .fillMaxHeight(0.85f)
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.dp, DocBorderDark, RoundedCornerShape(16.dp)),
-            colors = CardDefaults.cardColors(containerColor = DocSurfaceDark)
+                .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), RoundedCornerShape(18.dp)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier
@@ -102,51 +101,38 @@ fun PdfMakerStudioDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(36.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(DocPrimaryCyan),
+                                .background(CamScannerTeal.copy(alpha = 0.14f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = CamScannerTeal, modifier = Modifier.size(20.dp))
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
-                            Text("Image to PDF Studio", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Text("Camera scanner & Gallery Photo to PDF", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                            Text("Image to PDF", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text("Convert photos into clean PDF", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                         }
                     }
 
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Title Input
                 OutlinedTextField(
                     value = projectTitle,
                     onValueChange = { projectTitle = it },
-                    label = { Text("PDF Document Title", color = Color(0xFF94A3B8), fontSize = 12.sp) },
+                    label = { Text("PDF Title", fontSize = 11.sp) },
                     singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("pdf_maker_title_input"),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = DocPrimaryCyan,
-                        unfocusedBorderColor = DocBorderDark,
-                        focusedContainerColor = DocSurfaceCardDark,
-                        unfocusedContainerColor = DocSurfaceCardDark
-                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("pdf_maker_title_input"),
                     shape = RoundedCornerShape(10.dp)
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Source Action Buttons (Camera / Gallery)
                 Row(
@@ -159,39 +145,37 @@ fun PdfMakerStudioDialog(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = DocSurfaceCardDark),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DocPrimaryCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(42.dp)
                             .testTag("pdf_maker_pick_gallery_button")
                     ) {
-                        Icon(Icons.Default.Collections, contentDescription = null, tint = DocPrimaryCyanLight, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Collections, contentDescription = null, tint = CamScannerTeal, modifier = Modifier.size(17.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Gallery Photos", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Gallery", color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
 
                     Button(
                         onClick = { cameraLauncher.launch(null) },
-                        colors = ButtonDefaults.buttonColors(containerColor = DocSurfaceCardDark),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981)),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(42.dp)
                             .testTag("pdf_maker_open_camera_button")
                     ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = CamScannerTeal, modifier = Modifier.size(17.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Scan Camera", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Camera", color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Filter enhancement chips
-                Text("SCAN ENHANCEMENT FILTER", color = Color(0xFF94A3B8), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                Text("COLOR FILTER", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier
@@ -200,12 +184,12 @@ fun PdfMakerStudioDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterOptionChip(
-                        label = "Original Color",
+                        label = "Original",
                         isSelected = selectedFilter == "ORIGINAL",
                         onClick = { selectedFilter = "ORIGINAL" }
                     )
                     FilterOptionChip(
-                        label = "B&W Document Scan",
+                        label = "B&W Document",
                         isSelected = selectedFilter == "BW_DOCUMENT",
                         onClick = { selectedFilter = "BW_DOCUMENT" }
                     )
@@ -216,7 +200,7 @@ fun PdfMakerStudioDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Pages count & Thumbnails list
                 Row(
@@ -225,8 +209,8 @@ fun PdfMakerStudioDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "PDF SHEETS (${capturedImages.size} pages)",
-                        color = Color(0xFF94A3B8),
+                        text = "SHEETS (${capturedImages.size} pages)",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -247,17 +231,17 @@ fun PdfMakerStudioDialog(
                         .fillMaxWidth()
                         .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(DocSurfaceCardDark)
-                        .border(1.dp, DocBorderDark, RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (capturedImages.isEmpty()) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(36.dp))
+                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(34.dp))
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text("No images selected yet", color = Color(0xFFCBD5E1), fontSize = 12.sp)
-                            Text("Tap 'Gallery Photos' or 'Scan Camera' to add sheets", color = Color(0xFF64748B), fontSize = 10.sp)
+                            Text("No images selected yet", color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp)
+                            Text("Tap Gallery or Camera to add sheets", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                         }
                     } else {
                         LazyRow(
@@ -269,9 +253,9 @@ fun PdfMakerStudioDialog(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxHeight(0.9f)
-                                        .width(100.dp)
+                                        .width(96.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .border(1.dp, DocBorderDark, RoundedCornerShape(8.dp))
+                                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                                         .background(Color.Black)
                                 ) {
                                     Image(
@@ -287,7 +271,7 @@ fun PdfMakerStudioDialog(
                                             .padding(4.dp)
                                             .align(Alignment.TopStart)
                                             .clip(CircleShape)
-                                            .background(DocPrimaryCyan)
+                                            .background(CamScannerTeal)
                                             .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
                                         Text("${index + 1}", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
@@ -297,7 +281,7 @@ fun PdfMakerStudioDialog(
                                     IconButton(
                                         onClick = { capturedImages.removeAt(index) },
                                         modifier = Modifier
-                                            .size(24.dp)
+                                            .size(22.dp)
                                             .align(Alignment.TopEnd)
                                             .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                                     ) {
@@ -319,9 +303,9 @@ fun PdfMakerStudioDialog(
                     OutlinedButton(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Cancel", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                        Text("Cancel", fontSize = 12.sp)
                     }
 
                     Button(
@@ -334,15 +318,15 @@ fun PdfMakerStudioDialog(
                             onDismiss()
                         },
                         enabled = capturedImages.isNotEmpty(),
-                        colors = ButtonDefaults.buttonColors(containerColor = DocPrimaryCyan),
-                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .weight(1.5f)
                             .testTag("pdf_maker_create_pdf_button")
                     ) {
                         Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Generate PDF (${capturedImages.size}p)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Create PDF (${capturedImages.size}p)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -358,15 +342,14 @@ private fun FilterOptionChip(
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (isSelected) DocPrimaryCyan else DocSurfaceCardDark)
-            .border(1.dp, if (isSelected) DocPrimaryCyan else DocBorderDark, RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isSelected) CamScannerTeal else MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 5.dp)
     ) {
         Text(
             text = label,
-            color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
             fontSize = 11.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
         )

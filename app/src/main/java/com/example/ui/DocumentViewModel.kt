@@ -158,12 +158,18 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                         )
                     } else currentTabs
 
+                    val targetTabId = if (tabs.any { it.id == _uiState.value.activeTabId }) {
+                        _uiState.value.activeTabId
+                    } else {
+                        tabs.firstOrNull()?.id ?: ""
+                    }
+
                     _uiState.update {
                         it.copy(
                             documents = docs,
                             activeDocument = activeDoc,
                             tabs = tabs,
-                            activeTabId = tabs.firstOrNull()?.id ?: ""
+                            activeTabId = targetTabId
                         )
                     }
                     loadActivePageBitmap()
@@ -798,6 +804,9 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             }
         }
         loadActivePageBitmap()
+        try {
+            NotificationHelper.showPdfOpenedNotification(getApplication(), doc.title, doc.pageCount)
+        } catch (e: Exception) {}
     }
 
     fun openDocumentInStudio(doc: DocumentEntity) {
@@ -826,6 +835,9 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             }
         }
         loadActivePageBitmap()
+        try {
+            NotificationHelper.showPdfOpenedNotification(getApplication(), doc.title, doc.pageCount)
+        } catch (e: Exception) {}
     }
 
     fun switchToReader() {
@@ -1262,7 +1274,10 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         context: Context,
         addWhiteBorder: Boolean = false
     ) {
-        if (bitmaps.isEmpty()) return
+        if (bitmaps.isEmpty()) {
+            Toast.makeText(context, "No images selected for PDF", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         viewModelScope.launch {
             try {
@@ -1273,17 +1288,19 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     45
                 )
 
-                val pdfFile = PdfEngine.createPdfFromBitmaps(
-                    context = context,
-                    title = title,
-                    bitmaps = bitmaps,
-                    filter = filter,
-                    addWhiteBorder = addWhiteBorder
-                )
+                val pdfFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    PdfEngine.createPdfFromBitmaps(
+                        context = context,
+                        title = title,
+                        bitmaps = bitmaps,
+                        filter = filter,
+                        addWhiteBorder = addWhiteBorder
+                    )
+                }
 
                 val newDoc = DocumentEntity(
                     id = "doc-scan-" + UUID.randomUUID().toString().take(8),
-                    title = title,
+                    title = title.ifBlank { "Scanned_Document" },
                     category = DocumentCategory.SPECIFICATION.name,
                     pageCount = bitmaps.size,
                     fileSizeFormatted = String.format(Locale.US, "%.1f MB", (pdfFile.length() / (1024.0 * 1024.0)).coerceAtLeast(0.1)),
@@ -1297,18 +1314,22 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     filePath = pdfFile.absolutePath
                 )
 
-                docDao.insertDocument(newDoc)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    docDao.insertDocument(newDoc)
+                }
+
+                _uiState.update { it.copy(isPdfMakerOpen = false) }
                 openDocument(newDoc)
 
                 NotificationHelper.showCompletionNotification(
                     context,
                     "PDF Generated Successfully",
-                    "Created \"$title\" (${bitmaps.size} pages). Ready in Docs Z."
+                    "Created \"${newDoc.title}\" (${bitmaps.size} pages). Ready in Docs Z."
                 )
-                Toast.makeText(context, "Created \"$title\" (${bitmaps.size} pages)", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Created \"${newDoc.title}\" (${bitmaps.size} pages)", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 NotificationHelper.cancelProgress(context)
-                Toast.makeText(context, "Error creating PDF: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Error creating PDF: ${e.localizedMessage ?: e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }

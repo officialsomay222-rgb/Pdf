@@ -27,10 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.DigitalSignature
 import com.example.model.Point2D
-import com.example.ui.theme.DocBorderDark
-import com.example.ui.theme.DocPrimaryCyan
-import com.example.ui.theme.DocSurfaceCardDark
-import com.example.ui.theme.DocSurfaceDark
+import com.example.ui.theme.CamScannerTeal
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -39,52 +36,46 @@ fun SignaturePadDialog(
     onDismiss: () -> Unit,
     onSignatureConfirmed: (DigitalSignature) -> Unit
 ) {
-    var signerName by remember { mutableStateOf("Somay Sharma") }
-    var signerTitle by remember { mutableStateOf("Lead Architect & Engineer") }
-    var organization by remember { mutableStateOf("Apex Infrastructure Corp") }
+    var signerName by remember { mutableStateOf("Verified Signer") }
+    var signerTitle by remember { mutableStateOf("Authorized Signatory") }
+    var organization by remember { mutableStateOf("Docs Z Verified") }
 
     val strokes = remember { mutableStateListOf<MutableList<Point2D>>() }
     var currentStroke by remember { mutableStateOf<MutableList<Point2D>?>(null) }
 
     val dateIso = remember { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date()) }
-    val simulatedCertId = remember { "PAdES-X509-CA-" + UUID.randomUUID().toString().take(8).uppercase() }
+    val simulatedCertId = remember { "PAdES-" + UUID.randomUUID().toString().take(8).uppercase() }
     val simulatedHash = remember { "SHA256:" + UUID.randomUUID().toString().replace("-", "").take(16) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = DocSurfaceDark,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.VerifiedUser,
                     contentDescription = null,
-                    tint = DocPrimaryCyan,
+                    tint = CamScannerTeal,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Cryptographic PAdES Digital Signature",
-                    color = Color.White,
-                    fontSize = 15.sp,
+                    text = "Digital Signature",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Identity Fields
                 OutlinedTextField(
                     value = signerName,
                     onValueChange = { signerName = it },
                     label = { Text("Signer Name", fontSize = 11.sp) },
                     modifier = Modifier.fillMaxWidth().testTag("signer_name_input"),
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = DocPrimaryCyan,
-                        unfocusedBorderColor = DocBorderDark
-                    )
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -92,23 +83,19 @@ fun SignaturePadDialog(
                 OutlinedTextField(
                     value = signerTitle,
                     onValueChange = { signerTitle = it },
-                    label = { Text("Signer Title / Role", fontSize = 11.sp) },
+                    label = { Text("Signer Role / Title", fontSize = 11.sp) },
                     modifier = Modifier.fillMaxWidth().testTag("signer_title_input"),
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = DocPrimaryCyan,
-                        unfocusedBorderColor = DocBorderDark
-                    )
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Draw Digital Signature with Stylus or Finger:",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 11.sp
+                    text = "Draw Signature:",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -118,9 +105,9 @@ fun SignaturePadDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(130.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF0F172A))
-                        .border(1.dp, DocPrimaryCyan.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .border(1.dp, CamScannerTeal.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { offset ->
@@ -132,12 +119,8 @@ fun SignaturePadDialog(
                                     change.consume()
                                     currentStroke?.add(Point2D(change.position.x, change.position.y))
                                 },
-                                onDragEnd = {
-                                    currentStroke = null
-                                },
-                                onDragCancel = {
-                                    currentStroke = null
-                                }
+                                onDragEnd = { currentStroke = null },
+                                onDragCancel = { currentStroke = null }
                             )
                         }
                         .testTag("signature_drawing_canvas")
@@ -145,7 +128,7 @@ fun SignaturePadDialog(
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         // Baseline guide line
                         drawLine(
-                            color = Color(0xFF334155),
+                            color = Color(0x3364748B),
                             start = androidx.compose.ui.geometry.Offset(20f, size.height * 0.75f),
                             end = androidx.compose.ui.geometry.Offset(size.width - 20f, size.height * 0.75f),
                             strokeWidth = 1f
@@ -161,7 +144,7 @@ fun SignaturePadDialog(
                                 }
                                 drawPath(
                                     path = path,
-                                    color = Color(0xFF38BDF8),
+                                    color = Color(0xFF0D9488),
                                     style = Stroke(
                                         width = 3.5f,
                                         cap = StrokeCap.Round,
@@ -184,7 +167,7 @@ fun SignaturePadDialog(
                         Icon(
                             imageVector = Icons.Default.Clear,
                             contentDescription = "Clear",
-                            tint = Color(0xFF94A3B8),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -192,7 +175,7 @@ fun SignaturePadDialog(
                     if (strokes.isEmpty()) {
                         Text(
                             text = "Sign on baseline here...",
-                            color = Color(0xFF64748B),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             fontSize = 12.sp,
                             modifier = Modifier.align(Alignment.Center)
                         )
@@ -201,10 +184,11 @@ fun SignaturePadDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Cryptographic Certificate Metadata Badge
+                // Certificate Metadata Badge
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = DocSurfaceCardDark)
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -216,15 +200,15 @@ fun SignaturePadDialog(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "CRYPTOGRAPHIC AUDIT SEAL",
+                                text = "VERIFIED DIGITAL AUDIT SEAL",
                                 color = Color(0xFF10B981),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Text(
-                            text = "Cert ID: $simulatedCertId • Timestamp: $dateIso\nDoc Hash: $simulatedHash",
-                            color = Color(0xFF94A3B8),
+                            text = "Cert ID: $simulatedCertId • Timestamp: $dateIso",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 9.sp,
                             lineHeight = 12.sp
                         )
@@ -248,15 +232,16 @@ fun SignaturePadDialog(
                     )
                     onDismiss()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = DocPrimaryCyan),
+                colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
+                shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.testTag("confirm_signature_button")
             ) {
-                Text("Apply Cryptographic Seal", color = Color.White)
+                Text("Apply Signature", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color(0xFF94A3B8))
+                Text("Cancel")
             }
         }
     )

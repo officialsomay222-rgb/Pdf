@@ -18,35 +18,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.DocumentCategory
-import com.example.ui.theme.DocBorderDark
-import com.example.ui.theme.DocPrimaryCyan
-import com.example.ui.theme.DocSurfaceCardDark
-import com.example.ui.theme.DocSurfaceDark
+import com.example.ui.theme.CamScannerTeal
 
 @Composable
 fun CreateProjectDialog(
     onDismiss: () -> Unit,
     onCreateProject: (title: String, category: DocumentCategory, sheetCount: Int) -> Unit
 ) {
-    var title by remember { mutableStateOf("New Architectural Draft") }
+    var title by remember { mutableStateOf("New Project Draft") }
     var selectedCategory by remember { mutableStateOf(DocumentCategory.BLUEPRINT) }
     var sheetCount by remember { mutableStateOf(3) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = DocSurfaceDark,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = null,
-                    tint = DocPrimaryCyan,
+                    tint = CamScannerTeal,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Initialize New Project",
-                    color = Color.White,
+                    text = "New Document Project",
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -57,22 +54,17 @@ fun CreateProjectDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Project / Document Title", fontSize = 11.sp) },
+                    label = { Text("Document Title", fontSize = 11.sp) },
                     modifier = Modifier.fillMaxWidth().testTag("new_project_title_input"),
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = DocPrimaryCyan,
-                        unfocusedBorderColor = DocBorderDark
-                    )
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Project Category & Engine Mode:",
-                    color = Color(0xFF94A3B8),
+                    text = "Category Preset:",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -80,19 +72,23 @@ fun CreateProjectDialog(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 listOf(
-                    DocumentCategory.BLUEPRINT to "Architectural CAD Blueprint (with 1/4\" scale grid)",
-                    DocumentCategory.CONTRACT to "Master Legal Contract & Agreement",
-                    DocumentCategory.INSPECTION_FORM to "Municipal Inspection & Compliance Form",
-                    DocumentCategory.BLANK to "Blank Vector Canvas"
+                    DocumentCategory.BLUEPRINT to "Blueprint / Plan",
+                    DocumentCategory.CONTRACT to "Contract & Agreement",
+                    DocumentCategory.INSPECTION_FORM to "Inspection & Form",
+                    DocumentCategory.BLANK to "Blank Canvas"
                 ).forEach { (cat, desc) ->
                     val isSelected = selectedCategory == cat
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 3.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSelected) DocPrimaryCyan.copy(alpha = 0.2f) else DocSurfaceCardDark)
-                            .border(1.dp, if (isSelected) DocPrimaryCyan else DocBorderDark, RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) CamScannerTeal.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .border(
+                                1.dp,
+                                if (isSelected) CamScannerTeal else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                RoundedCornerShape(8.dp)
+                            )
                             .clickable { selectedCategory = cat }
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -100,19 +96,19 @@ fun CreateProjectDialog(
                         RadioButton(
                             selected = isSelected,
                             onClick = { selectedCategory = cat },
-                            colors = RadioButtonDefaults.colors(selectedColor = DocPrimaryCyan)
+                            colors = RadioButtonDefaults.colors(selectedColor = CamScannerTeal)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Column {
                             Text(
                                 text = cat.name.replace("_", " "),
-                                color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
                             Text(
                                 text = desc,
-                                color = Color(0xFF94A3B8),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 10.sp
                             )
                         }
@@ -128,8 +124,8 @@ fun CreateProjectDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Initial Sheets: $sheetCount",
-                        color = Color.White,
+                        text = "Sheets: $sheetCount",
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -139,14 +135,14 @@ fun CreateProjectDialog(
                             Box(
                                 modifier = Modifier
                                     .padding(horizontal = 3.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isCurrent) DocPrimaryCyan else DocSurfaceCardDark)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isCurrent) CamScannerTeal else MaterialTheme.colorScheme.surfaceVariant)
                                     .clickable { sheetCount = count }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Text(
                                     text = "$count",
-                                    color = if (isCurrent) Color.White else Color(0xFF94A3B8),
+                                    color = if (isCurrent) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -164,15 +160,16 @@ fun CreateProjectDialog(
                         onDismiss()
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = DocPrimaryCyan),
+                colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
+                shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.testTag("confirm_create_project_button")
             ) {
-                Text("Create Project", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Create Project", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color(0xFF94A3B8))
+                Text("Cancel")
             }
         }
     )

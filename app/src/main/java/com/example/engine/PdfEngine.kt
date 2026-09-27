@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.example.model.*
 import java.io.File
@@ -267,8 +268,41 @@ object PdfEngine {
     }
 
     /**
+     * Safely decodes a Uri from gallery/camera storage with memory downsampling
+     * to avoid OutOfMemoryError on low-end and budget devices.
+     */
+    fun decodeSampledBitmapFromUri(context: Context, uri: Uri, targetMaxDim: Int = 1600): Bitmap? {
+        return try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, options)
+            }
+            val origW = options.outWidth
+            val origH = options.outHeight
+            if (origW <= 0 || origH <= 0) return null
+
+            var sampleSize = 1
+            while (origW / sampleSize > targetMaxDim || origH / sampleSize > targetMaxDim) {
+                sampleSize *= 2
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+                inDither = true
+            }
+
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, decodeOptions)
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * Converts a collection of Bitmaps (from Camera or Gallery) into a multi-page PDF.
-     * Optionally adds an extra crisp white border/margin around the sheets.
+     * Normalizes pages to standard A4 (595x842 pt) and fits photos smoothly without memory crashes.
      */
     fun createPdfFromBitmaps(
         context: Context,
@@ -276,13 +310,16 @@ object PdfEngine {
         bitmaps: List<Bitmap>,
         filter: String = "ORIGINAL",
         addWhiteBorder: Boolean = false,
-        whiteBorderPaddingPx: Int = 36
+        whiteBorderPaddingPx: Int = 24
     ): File {
+        if (bitmaps.isEmpty()) {
+            throw IllegalArgumentException("No images provided for PDF creation")
+        }
+
         val pdfDocument = PdfDocument()
 
         val colorMatrix = ColorMatrix()
         if (filter == "BW_DOCUMENT") {
-            // High contrast black & white document filter
             colorMatrix.setSaturation(0f)
             val contrast = 1.6f
             val scale = contrast
@@ -301,33 +338,83 @@ object PdfEngine {
         val bitmapPaint = Paint().apply {
             isAntiAlias = true
             isFilterBitmap = true
+            isDither = true
             if (filter != "ORIGINAL") {
                 colorFilter = ColorMatrixColorFilter(colorMatrix)
             }
         }
 
-        for ((index, bmp) in bitmaps.withIndex()) {
-            val pad = if (addWhiteBorder) whiteBorderPaddingPx else 0
-            val targetW = bmp.width + (pad * 2)
-            val targetH = bmp.height + (pad * 2)
+        try {
+            var writtenPages = 0
+            for (bmp in bitmaps) {
+                if (bmp.isRecycled) continue
 
-            val pageInfo = PdfDocument.PageInfo.Builder(targetW, targetH, index + 1).create()
-            val page = pdfDocument.startPage(pageInfo)
-            val canvas = page.canvas
+                // Downscale bitmap if exceptionally large (> 1600px) to prevent memory crash
+                val maxDim = maxOf(bmp.width, bmp.height)
+                val workingBmp = if (maxDim > 1600) {
+                    val scaleFactor = 1600f / maxDim
+                    val scaledW = (bmp.width * scaleFactor).toInt().coerceAtLeast(1)
+                    val scaledH = (bmp.height * scaleFactor).toInt().coerceAtLeast(1)
+                    try {
+                        Bitmap.createScaledBitmap(bmp, scaledW, scaledH, true)
+                    } catch (e: Throwable) {
+                        bmp
+                    }
+                } else {
+                    bmp
+                }
 
-            // Pure crisp white background canvas
-            canvas.drawColor(Color.WHITE)
-            canvas.drawBitmap(bmp, pad.toFloat(), pad.toFloat(), bitmapPaint)
-            pdfDocument.finishPage(page)
+                val isLandscape = workingBmp.width > workingBmp.height
+                val pageWidth = if (isLandscape) 842 else 595
+                val pageHeight = if (isLandscape) 595 else 842
+
+                val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, writtenPages + 1).create()
+                val page = pdfDocument.startPage(pageInfo)
+                val canvas = page.canvas
+
+                // Pure crisp white background
+                canvas.drawColor(Color.WHITE)
+
+                val margin = if (addWhiteBorder) whiteBorderPaddingPx.toFloat() else 12f
+                val availW = pageWidth - (margin * 2f)
+                val availH = pageHeight - (margin * 2f)
+
+                val scale = minOf(availW / workingBmp.width.toFloat(), availH / workingBmp.height.toFloat())
+                val drawW = workingBmp.width * scale
+                val drawH = workingBmp.height * scale
+                val drawX = margin + (availW - drawW) / 2f
+                val drawY = margin + (availH - drawH) / 2f
+
+                val destRect = RectF(drawX, drawY, drawX + drawW, drawY + drawH)
+                canvas.drawBitmap(workingBmp, null, destRect, bitmapPaint)
+                pdfDocument.finishPage(page)
+                writtenPages++
+
+                if (workingBmp !== bmp && !workingBmp.isRecycled) {
+                    try { workingBmp.recycle() } catch (e: Exception) {}
+                }
+            }
+
+            if (writtenPages == 0) {
+                val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+                val page = pdfDocument.startPage(pageInfo)
+                page.canvas.drawColor(Color.WHITE)
+                pdfDocument.finishPage(page)
+            }
+
+            val docsDir = File(context.filesDir, "docs").apply { mkdirs() }
+            val cleanName = title.replace("[^a-zA-Z0-9_-]".toRegex(), "_").ifBlank { "Scan" }
+            val outputFile = File(docsDir, "${cleanName}_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(outputFile).use { out ->
+                pdfDocument.writeTo(out)
+                out.flush()
+            }
+            return outputFile
+        } finally {
+            try {
+                pdfDocument.close()
+            } catch (e: Exception) {}
         }
-
-        val cleanName = title.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
-        val outputFile = File(context.cacheDir, "${cleanName}_scan_${System.currentTimeMillis()}.pdf")
-        FileOutputStream(outputFile).use { out ->
-            pdfDocument.writeTo(out)
-        }
-        pdfDocument.close()
-        return outputFile
     }
 
     /**
@@ -447,13 +534,19 @@ object PdfEngine {
 
         pdfDocument.finishPage(page)
 
-        val cleanName = title.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
-        val outputFile = File(context.cacheDir, "${cleanName}_idcard_${System.currentTimeMillis()}.pdf")
-        FileOutputStream(outputFile).use { out ->
-            pdfDocument.writeTo(out)
+        try {
+            val docsDir = File(context.filesDir, "docs").apply { mkdirs() }
+            val cleanName = title.replace("[^a-zA-Z0-9_-]".toRegex(), "_").ifBlank { "ID_Card" }
+            val outputFile = File(docsDir, "${cleanName}_idcard_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(outputFile).use { out ->
+                pdfDocument.writeTo(out)
+            }
+            return outputFile
+        } finally {
+            try {
+                pdfDocument.close()
+            } catch (e: Exception) {}
         }
-        pdfDocument.close()
-        return outputFile
     }
 
     /**
@@ -543,9 +636,10 @@ object PdfEngine {
             }
             val page = renderer.openPage(pageIndex)
             val aspect = page.width.toFloat() / page.height.toFloat()
-            val w = targetWidth.coerceIn(300, 2048)
-            val h = (w / aspect).toInt().coerceIn(300, 3200)
-            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val w = targetWidth.coerceIn(300, 1440)
+            val h = (w / aspect).toInt().coerceIn(300, 2560)
+            // RGB_565 uses 50% less RAM than ARGB_8888, eliminating GC pauses on low-end phones
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
             bitmap.eraseColor(Color.WHITE)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             page.close()

@@ -7,6 +7,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.engine.PdfEngine
+import com.example.ui.components.DocumentActionShutterSheet
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -214,47 +216,53 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(contentPadding)
         ) {
-            when (uiState.activeNavTab) {
-                CamScannerNavTab.DOCS -> {
-                    DocsTabHomeContent(
-                        uiState = uiState,
-                        viewModel = viewModel,
-                        filteredDocs = filteredDocs,
-                        activeDoc = activeDoc,
-                        activeTab = activeTab,
-                        onOpenDocument = onOpenDocument,
-                        onLaunchWorkflow = onLaunchWorkflow,
-                        onResumeWorkspace = onResumeWorkspace
-                    )
-                }
-                CamScannerNavTab.TOOLS -> {
-                    ToolsTabContent(
-                        uiState = uiState,
-                        viewModel = viewModel,
-                        onLaunchWorkflow = onLaunchWorkflow
-                    )
-                }
-                CamScannerNavTab.SCAN -> {
-                    ScanStudioTabContent(
-                        viewModel = viewModel,
-                        onCreatePdf = { title, bmps, filter, addWhiteBorder ->
-                            viewModel.createPdfFromScannedImages(title, bmps, filter, context, addWhiteBorder)
-                        },
-                        onOpenIdCard = { viewModel.setIdCardScannerOpen(true) }
-                    )
-                }
-                CamScannerNavTab.FOLDERS -> {
-                    FoldersTabContent(
-                        uiState = uiState,
-                        viewModel = viewModel,
-                        onOpenDocument = onOpenDocument
-                    )
-                }
-                CamScannerNavTab.SETTINGS -> {
-                    SettingsTabContent(
-                        uiState = uiState,
-                        viewModel = viewModel
-                    )
+            Crossfade(
+                targetState = uiState.activeNavTab,
+                animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+                label = "activeTabCrossfade"
+            ) { targetTab ->
+                when (targetTab) {
+                    CamScannerNavTab.DOCS -> {
+                        DocsTabHomeContent(
+                            uiState = uiState,
+                            viewModel = viewModel,
+                            filteredDocs = filteredDocs,
+                            activeDoc = activeDoc,
+                            activeTab = activeTab,
+                            onOpenDocument = onOpenDocument,
+                            onLaunchWorkflow = onLaunchWorkflow,
+                            onResumeWorkspace = onResumeWorkspace
+                        )
+                    }
+                    CamScannerNavTab.TOOLS -> {
+                        ToolsTabContent(
+                            uiState = uiState,
+                            viewModel = viewModel,
+                            onLaunchWorkflow = onLaunchWorkflow
+                        )
+                    }
+                    CamScannerNavTab.SCAN -> {
+                        ScanStudioTabContent(
+                            viewModel = viewModel,
+                            onCreatePdf = { title, bmps, filter, addWhiteBorder ->
+                                viewModel.createPdfFromScannedImages(title, bmps, filter, context, addWhiteBorder)
+                            },
+                            onOpenIdCard = { viewModel.setIdCardScannerOpen(true) }
+                        )
+                    }
+                    CamScannerNavTab.FOLDERS -> {
+                        FoldersTabContent(
+                            uiState = uiState,
+                            viewModel = viewModel,
+                            onOpenDocument = onOpenDocument
+                        )
+                    }
+                    CamScannerNavTab.SETTINGS -> {
+                        SettingsTabContent(
+                            uiState = uiState,
+                            viewModel = viewModel
+                        )
+                    }
                 }
             }
         }
@@ -407,6 +415,7 @@ private fun DocsTabHomeContent(
 ) {
     val context = LocalContext.current
     var showSortMenu by remember { mutableStateOf(false) }
+    var actionSheetDoc by remember { mutableStateOf<DocumentEntity?>(null) }
 
     // PDF & Document File Picker Launcher
     val pdfPicker = rememberLauncherForActivityResult(
@@ -650,19 +659,9 @@ private fun DocsTabHomeContent(
                             isSelected = uiState.selectedDocIds.contains(doc.id),
                             isMultiSelectMode = uiState.isMultiSelectMode,
                             onToggleSelect = { viewModel.toggleSelectDoc(doc.id) },
-                            onOpen = { viewModel.openDocumentInReader(doc) },
+                            onOpen = { onOpenDocument(doc) },
                             onOpenStudio = { viewModel.openDocumentInStudio(doc) },
-                            onRename = { viewModel.setRenameDialogOpen(true, doc) },
-                            onShare = {
-                                viewModel.openDocument(doc)
-                                viewModel.exportDocument(context)
-                            },
-                            onCompress = { viewModel.openCompressorForDoc(doc) },
-                            onOcr = { viewModel.extractTextFromDoc(doc) },
-                            onMoveFolder = { viewModel.setMoveFolderDialogOpen(true, doc) },
-                            onSplit = { viewModel.setSplitDocDialogOpen(true, doc) },
-                            onDuplicate = { viewModel.duplicateDocument(doc) },
-                            onDelete = { viewModel.deleteDocument(doc.id) }
+                            onOpenMore = { actionSheetDoc = doc }
                         )
                     }
                 } else {
@@ -672,7 +671,7 @@ private fun DocsTabHomeContent(
                             columns = GridCells.Fixed(2),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 1000.dp),
+                                .heightIn(max = 1200.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -682,16 +681,9 @@ private fun DocsTabHomeContent(
                                     isSelected = uiState.selectedDocIds.contains(doc.id),
                                     isMultiSelectMode = uiState.isMultiSelectMode,
                                     onToggleSelect = { viewModel.toggleSelectDoc(doc.id) },
-                                    onOpen = { viewModel.openDocumentInReader(doc) },
+                                    onOpen = { onOpenDocument(doc) },
                                     onOpenStudio = { viewModel.openDocumentInStudio(doc) },
-                                    onRename = { viewModel.setRenameDialogOpen(true, doc) },
-                                    onShare = {
-                                        viewModel.openDocument(doc)
-                                        viewModel.exportDocument(context)
-                                    },
-                                    onCompress = { viewModel.openCompressorForDoc(doc) },
-                                    onOcr = { viewModel.extractTextFromDoc(doc) },
-                                    onDelete = { viewModel.deleteDocument(doc.id) }
+                                    onOpenMore = { actionSheetDoc = doc }
                                 )
                             }
                         }
@@ -702,6 +694,55 @@ private fun DocsTabHomeContent(
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+
+        // Shutter Bottom Action Sheet for three-dot menus (smooth, no lag, full options)
+        actionSheetDoc?.let { targetDoc ->
+            DocumentActionShutterSheet(
+                document = targetDoc,
+                onDismiss = { actionSheetDoc = null },
+                onOpenReader = {
+                    actionSheetDoc = null
+                    onOpenDocument(targetDoc)
+                },
+                onOpenStudio = {
+                    actionSheetDoc = null
+                    viewModel.openDocumentInStudio(targetDoc)
+                },
+                onShare = {
+                    actionSheetDoc = null
+                    viewModel.openDocument(targetDoc)
+                    viewModel.exportDocument(context)
+                },
+                onCompress = {
+                    actionSheetDoc = null
+                    viewModel.openCompressorForDoc(targetDoc)
+                },
+                onRename = {
+                    actionSheetDoc = null
+                    viewModel.setRenameDialogOpen(true, targetDoc)
+                },
+                onOcr = {
+                    actionSheetDoc = null
+                    viewModel.extractTextFromDoc(targetDoc)
+                },
+                onMoveFolder = {
+                    actionSheetDoc = null
+                    viewModel.setMoveFolderDialogOpen(true, targetDoc)
+                },
+                onSplit = {
+                    actionSheetDoc = null
+                    viewModel.setSplitDocDialogOpen(true, targetDoc)
+                },
+                onDuplicate = {
+                    actionSheetDoc = null
+                    viewModel.duplicateDocument(targetDoc)
+                },
+                onDelete = {
+                    actionSheetDoc = null
+                    viewModel.deleteDocument(targetDoc.id)
+                }
+            )
         }
     }
 }
@@ -1154,16 +1195,8 @@ private fun DocZListItemCard(
     onToggleSelect: () -> Unit,
     onOpen: () -> Unit,
     onOpenStudio: () -> Unit,
-    onRename: () -> Unit,
-    onShare: () -> Unit,
-    onCompress: () -> Unit,
-    onOcr: () -> Unit,
-    onMoveFolder: () -> Unit,
-    onSplit: () -> Unit,
-    onDuplicate: () -> Unit,
-    onDelete: () -> Unit
+    onOpenMore: () -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
     val formattedDate = remember(document.modifiedAt) {
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(document.modifiedAt))
     }
@@ -1283,78 +1316,27 @@ private fun DocZListItemCard(
             // Quick Studio Editor Button
             IconButton(
                 onClick = onOpenStudio,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(34.dp).testTag("doc_item_edit_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.Edit,
                     contentDescription = "Studio Editor",
                     tint = CamScannerTeal,
-                    modifier = Modifier.size(17.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
-            // 3-dot context menu
-            Box {
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "More actions", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Quick View (Normal Reader)") },
-                        onClick = { showMenu = false; onOpen() },
-                        leadingIcon = { Icon(Icons.Default.MenuBook, contentDescription = null, tint = CamScannerTeal) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Studio Editor (All-in-One)") },
-                        onClick = { showMenu = false; onOpenStudio() },
-                        leadingIcon = { Icon(Icons.Default.Handyman, contentDescription = null, tint = Color(0xFFF59E0B)) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Rename") },
-                        onClick = { showMenu = false; onRename() },
-                        leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Share / Export PDF") },
-                        onClick = { showMenu = false; onShare() },
-                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Compress PDF") },
-                        onClick = { showMenu = false; onCompress() },
-                        leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Extract Text (OCR)") },
-                        onClick = { showMenu = false; onOcr() },
-                        leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Move to Folder") },
-                        onClick = { showMenu = false; onMoveFolder() },
-                        leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Split Document") },
-                        onClick = { showMenu = false; onSplit() },
-                        leadingIcon = { Icon(Icons.Default.CallSplit, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Duplicate") },
-                        onClick = { showMenu = false; onDuplicate() },
-                        leadingIcon = { Icon(Icons.Default.ControlPointDuplicate, contentDescription = null) }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = Color(0xFFEF4444)) },
-                        onClick = { showMenu = false; onDelete() },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444)) }
-                    )
-                }
+            // 3-dot context menu (triggers buttery smooth Shutter sheet)
+            IconButton(
+                onClick = onOpenMore,
+                modifier = Modifier.size(34.dp).testTag("doc_item_more_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "More actions",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
@@ -1372,11 +1354,7 @@ private fun DocZGridItemCard(
     onToggleSelect: () -> Unit,
     onOpen: () -> Unit,
     onOpenStudio: () -> Unit,
-    onRename: () -> Unit,
-    onShare: () -> Unit,
-    onCompress: () -> Unit,
-    onOcr: () -> Unit,
-    onDelete: () -> Unit
+    onOpenMore: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -1458,17 +1436,12 @@ private fun DocZGridItemCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onOpenStudio, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Edit, contentDescription = "Studio Editor", tint = CamScannerTeal, modifier = Modifier.size(15.dp))
+                IconButton(onClick = onOpenStudio, modifier = Modifier.size(28.dp).testTag("grid_doc_edit_button")) {
+                    Icon(Icons.Default.Edit, contentDescription = "Studio Editor", tint = CamScannerTeal, modifier = Modifier.size(16.dp))
                 }
 
-                Row {
-                    IconButton(onClick = onShare, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-                    }
-                    IconButton(onClick = onCompress, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Compress, contentDescription = "Compress", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-                    }
+                IconButton(onClick = onOpenMore, modifier = Modifier.size(28.dp).testTag("grid_doc_more_button")) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -1513,16 +1486,16 @@ private fun ToolsTabContent(
             ToolCategorySection(
                 title = "SCAN & CAPTURE",
                 tools = listOf(
-                    ToolCardItem("ID Card (2-in-1)", "Front & back onto one A4 sheet", Icons.Default.Badge, Color(0xFF00897B)) {
+                    ToolCardItem("ID Card (2-in-1)", "Front & back on 1 page", Icons.Default.Badge, Color(0xFF00897B)) {
                         viewModel.setIdCardScannerOpen(true)
                     },
-                    ToolCardItem("Smart Camera Scan", "Auto-crop, magic color & high-res", Icons.Default.CameraAlt, Color(0xFF10B981)) {
+                    ToolCardItem("Smart Camera Scan", "Camera doc scanner", Icons.Default.CameraAlt, Color(0xFF10B981)) {
                         viewModel.setNavTab(CamScannerNavTab.SCAN)
                     },
-                    ToolCardItem("Book Scan", "Two-page spread split format", Icons.Default.MenuBook, Color(0xFF0284C7)) {
+                    ToolCardItem("Book Scan", "2-page spread split", Icons.Default.MenuBook, Color(0xFF0284C7)) {
                         viewModel.setNavTab(CamScannerNavTab.SCAN)
                     },
-                    ToolCardItem("Batch Scan", "Multi-sheet rapid capture", Icons.Default.Collections, Color(0xFF8B5CF6)) {
+                    ToolCardItem("Batch Scan", "Rapid multi-sheet", Icons.Default.Collections, Color(0xFF8B5CF6)) {
                         viewModel.setNavTab(CamScannerNavTab.SCAN)
                     }
                 )
@@ -1534,21 +1507,21 @@ private fun ToolsTabContent(
             ToolCategorySection(
                 title = "CONVERT & EXPORT",
                 tools = listOf(
-                    ToolCardItem("Image to PDF", "Photos to standardized PDF", Icons.Default.PictureAsPdf, Color(0xFFEF4444)) {
-                        viewModel.setNavTab(CamScannerNavTab.SCAN)
+                    ToolCardItem("Image to PDF", "Photos to clean PDF", Icons.Default.PictureAsPdf, Color(0xFFEF4444)) {
+                        viewModel.setPdfMakerOpen(true)
                     },
-                    ToolCardItem("To Word / Text OCR", "Extract text & data fields", Icons.Default.TextFields, Color(0xFF06B6D4)) {
+                    ToolCardItem("Text OCR", "Extract text from doc", Icons.Default.TextFields, Color(0xFF06B6D4)) {
                         val target = uiState.activeDocument ?: uiState.documents.firstOrNull()
                         if (target != null) viewModel.extractTextFromDoc(target)
-                        else Toast.makeText(context, "No doc loaded", Toast.LENGTH_SHORT).show()
+                        else Toast.makeText(context, "Please select or open a document first", Toast.LENGTH_SHORT).show()
                     },
-                    ToolCardItem("Merge PDFs", "Combine multiple documents", Icons.Default.CallMerge, Color(0xFFEC4899)) {
+                    ToolCardItem("Merge PDFs", "Combine documents", Icons.Default.CallMerge, Color(0xFFEC4899)) {
                         viewModel.setMergeDocsDialogOpen(true)
                     },
-                    ToolCardItem("Split PDF", "Extract or divide pages", Icons.Default.CallSplit, Color(0xFFF59E0B)) {
+                    ToolCardItem("Split PDF", "Extract & divide pages", Icons.Default.CallSplit, Color(0xFFF59E0B)) {
                         val target = uiState.activeDocument ?: uiState.documents.firstOrNull()
                         if (target != null) viewModel.setSplitDocDialogOpen(true, target)
-                        else Toast.makeText(context, "No doc loaded", Toast.LENGTH_SHORT).show()
+                        else Toast.makeText(context, "Please select or open a document first", Toast.LENGTH_SHORT).show()
                     }
                 )
             )
@@ -1559,23 +1532,22 @@ private fun ToolsTabContent(
             ToolCategorySection(
                 title = "PDF UTILITIES & EDIT",
                 tools = listOf(
-                    ToolCardItem("PDF Compressor", "Reduce file size with live preview", Icons.Default.Compress, Color(0xFF0284C7)) {
-                        val target = uiState.activeDocument ?: uiState.documents.firstOrNull()
-                        if (target != null) viewModel.openCompressorForDoc(target)
+                    ToolCardItem("PDF Compressor", "Upload PDF & reduce size", Icons.Default.Compress, Color(0xFF0284C7)) {
+                        viewModel.setCompressorOpen(true)
                     },
-                    ToolCardItem("Markup & Annotate", "Pen, highlighter, shapes & stamps", Icons.Default.Edit, Color(0xFF38BDF8)) {
+                    ToolCardItem("Markup & Edit", "Pen, highlighter & stamps", Icons.Default.Edit, Color(0xFF38BDF8)) {
                         onLaunchWorkflow(WorkflowShortcut.MARKUP_ANNOTATE)
                     },
-                    ToolCardItem("CAD Measurements", "Calibrated scales, lengths & areas", Icons.Default.SquareFoot, Color(0xFFF59E0B)) {
+                    ToolCardItem("CAD Rulers", "Scale, lengths & areas", Icons.Default.SquareFoot, Color(0xFFF59E0B)) {
                         onLaunchWorkflow(WorkflowShortcut.CAD_MEASURE)
                     },
-                    ToolCardItem("Digital Signatures", "Interactive fill & crypto certificates", Icons.Default.AssignmentTurnedIn, Color(0xFF10B981)) {
+                    ToolCardItem("Sign & Fill", "Digital signatures", Icons.Default.AssignmentTurnedIn, Color(0xFF10B981)) {
                         onLaunchWorkflow(WorkflowShortcut.FORMS_AND_SIGN)
                     },
-                    ToolCardItem("Page Assembly", "Reorder, rotate 90° & duplicate", Icons.Default.AutoStories, Color(0xFF6366F1)) {
+                    ToolCardItem("Page Assembly", "Reorder & rotate pages", Icons.Default.AutoStories, Color(0xFF6366F1)) {
                         onLaunchWorkflow(WorkflowShortcut.PAGE_ASSEMBLY)
                     },
-                    ToolCardItem("Security & Watermark", "AES password lock & watermark", Icons.Default.Security, Color(0xFFEF4444)) {
+                    ToolCardItem("Security & Protect", "Password & watermark", Icons.Default.Security, Color(0xFFEF4444)) {
                         onLaunchWorkflow(WorkflowShortcut.SECURITY_WATERMARK)
                     }
                 )
@@ -1700,8 +1672,8 @@ private fun ScanStudioTabContent(
         onResult = { uris ->
             uris.forEach { uri ->
                 try {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        BitmapFactory.decodeStream(stream)?.let { capturedImages.add(it) }
+                    PdfEngine.decodeSampledBitmapFromUri(context, uri, targetMaxDim = 1400)?.let {
+                        capturedImages.add(it)
                     }
                 } catch (e: Exception) {
                     Toast.makeText(context, "Image load error: ${e.message}", Toast.LENGTH_SHORT).show()

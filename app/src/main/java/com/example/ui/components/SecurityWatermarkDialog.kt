@@ -1,8 +1,8 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,10 +13,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.DocBorderDark
-import com.example.ui.theme.DocPrimaryCyan
-import com.example.ui.theme.DocSurfaceCardDark
-import com.example.ui.theme.DocSurfaceDark
+import com.example.ui.theme.CamScannerTeal
 
 @Composable
 fun SecurityWatermarkDialog(
@@ -27,25 +24,25 @@ fun SecurityWatermarkDialog(
 ) {
     var watermarkText by remember { mutableStateOf(currentWatermark) }
     var passwordEnabled by remember { mutableStateOf(isPasswordProtected) }
-    var passwordValue by remember { mutableStateOf("EnterpriseDoc2026!") }
+    var passwordValue by remember { mutableStateOf("DocSecurity2026") }
     var preventPrinting by remember { mutableStateOf(true) }
     var preventTextCopy by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = DocSurfaceDark,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Security,
                     contentDescription = null,
-                    tint = DocPrimaryCyan,
+                    tint = CamScannerTeal,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Enterprise Security & Watermark",
-                    color = Color.White,
+                    text = "Security & Watermark",
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -57,21 +54,16 @@ fun SecurityWatermarkDialog(
                 OutlinedTextField(
                     value = watermarkText,
                     onValueChange = { watermarkText = it },
-                    label = { Text("Diagonal Security Watermark Text", fontSize = 11.sp) },
-                    placeholder = { Text("e.g. CONFIDENTIAL - STAGE 4 BID") },
+                    label = { Text("Watermark Text", fontSize = 11.sp) },
+                    placeholder = { Text("e.g. CONFIDENTIAL / DRAFT") },
                     modifier = Modifier.fillMaxWidth().testTag("watermark_text_input"),
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = DocPrimaryCyan,
-                        unfocusedBorderColor = DocBorderDark
-                    )
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // AES-256 Military Encryption Toggle
+                // Document Encryption Toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -79,21 +71,21 @@ fun SecurityWatermarkDialog(
                 ) {
                     Column {
                         Text(
-                            text = "AES-256 Bit Document Encryption",
-                            color = Color.White,
+                            text = "Password Protection",
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Require cryptographic passphrase to open",
-                            color = Color(0xFF94A3B8),
+                            text = "Require passphrase to open document",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 10.sp
                         )
                     }
                     Switch(
                         checked = passwordEnabled,
                         onCheckedChange = { passwordEnabled = it },
-                        colors = SwitchDefaults.colors(checkedThumbColor = DocPrimaryCyan),
+                        colors = SwitchDefaults.colors(checkedThumbColor = CamScannerTeal),
                         modifier = Modifier.testTag("encryption_toggle_switch")
                     )
                 }
@@ -106,26 +98,22 @@ fun SecurityWatermarkDialog(
                         label = { Text("Passphrase", fontSize = 11.sp) },
                         modifier = Modifier.fillMaxWidth().testTag("encryption_password_input"),
                         singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = DocPrimaryCyan,
-                            unfocusedBorderColor = DocBorderDark
-                        )
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Granular Permissions
+                // Permissions Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = DocSurfaceCardDark)
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Text(
-                            text = "RESTRICTED PERMISSIONS",
-                            color = Color(0xFF94A3B8),
+                            text = "PERMISSIONS",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -136,17 +124,17 @@ fun SecurityWatermarkDialog(
                             Checkbox(
                                 checked = preventPrinting,
                                 onCheckedChange = { preventPrinting = it },
-                                colors = CheckboxDefaults.colors(checkedColor = DocPrimaryCyan)
+                                colors = CheckboxDefaults.colors(checkedColor = CamScannerTeal)
                             )
-                            Text("Disable High-Res Printing", color = Color.White, fontSize = 11.sp)
+                            Text("Disable Printing", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(
                                 checked = preventTextCopy,
                                 onCheckedChange = { preventTextCopy = it },
-                                colors = CheckboxDefaults.colors(checkedColor = DocPrimaryCyan)
+                                colors = CheckboxDefaults.colors(checkedColor = CamScannerTeal)
                             )
-                            Text("Disable Vector & Text Extraction", color = Color.White, fontSize = 11.sp)
+                            Text("Disable Text Extraction", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
                         }
                     }
                 }
@@ -158,15 +146,16 @@ fun SecurityWatermarkDialog(
                     onSaveSecurity(watermarkText, passwordEnabled)
                     onDismiss()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = DocPrimaryCyan),
+                colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
+                shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.testTag("save_security_button")
             ) {
-                Text("Save Policies", color = Color.White)
+                Text("Save", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color(0xFF94A3B8))
+                Text("Cancel")
             }
         }
     )
