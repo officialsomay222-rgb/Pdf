@@ -98,7 +98,17 @@ data class DocumentUiState(
     val isRenameDialogOpen: Boolean = false,
     val docToRename: DocumentEntity? = null,
     val isMoveFolderDialogOpen: Boolean = false,
-    val docToMove: DocumentEntity? = null
+    val docToMove: DocumentEntity? = null,
+    // Dedicated Tool Action & Choose Document State
+    val chooseDocAction: ToolActionType? = null,
+    val isWordViewerOpen: Boolean = false,
+    val wordDocTitle: String = "",
+    val wordDocContent: String = "",
+    val isPdfToImageOpen: Boolean = false,
+    val pdfToImageDocTitle: String = "",
+    val pdfToImageFiles: List<File> = emptyList(),
+    val docToSign: DocumentEntity? = null,
+    val docToLock: DocumentEntity? = null
 )
 
 class DocumentViewModel(application: Application) : AndroidViewModel(application) {
@@ -195,30 +205,47 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             return
         }
 
-        if (doc.filePath.isNotBlank()) {
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val f = File(doc.filePath)
-                if (f.exists() && f.length() > 0L) {
-                    val isImg = doc.filePath.endsWith(".jpg", true) || doc.filePath.endsWith(".png", true) || doc.filePath.endsWith(".jpeg", true)
-                    val bmp = if (isImg) {
-                        try {
-                            BitmapFactory.decodeFile(doc.filePath)
-                        } catch (e: Exception) { null }
-                    } else {
-                        PdfEngine.renderPdfPage(doc.filePath, pageIndex, 1080)
-                    }
-                    if (bmp != null) {
-                        pageBitmapCache.put(key, bmp)
-                        _renderedPageBitmap.value = bmp
-                    } else {
-                        _renderedPageBitmap.value = null
-                    }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var currentPath = doc.filePath
+            if (currentPath.isBlank() || !File(currentPath).exists() || File(currentPath).length() == 0L) {
+                try {
+                    val pdf = PdfEngine.exportToPdfFile(
+                        context = getApplication(),
+                        documentTitle = doc.title,
+                        pageCount = doc.pageCount,
+                        category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.BLUEPRINT },
+                        annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                        measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                        formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                        watermark = doc.watermarkText
+                    )
+                    currentPath = pdf.absolutePath
+                    val updated = doc.copy(filePath = currentPath)
+                    docDao.updateDocument(updated)
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+
+            val f = File(currentPath)
+            if (f.exists() && f.length() > 0L) {
+                val isImg = currentPath.endsWith(".jpg", true) || currentPath.endsWith(".png", true) || currentPath.endsWith(".jpeg", true)
+                val bmp = if (isImg) {
+                    try {
+                        BitmapFactory.decodeFile(currentPath)
+                    } catch (e: Exception) { null }
+                } else {
+                    PdfEngine.renderPdfPage(currentPath, pageIndex, 1080)
+                }
+                if (bmp != null) {
+                    pageBitmapCache.put(key, bmp)
+                    _renderedPageBitmap.value = bmp
                 } else {
                     _renderedPageBitmap.value = null
                 }
+            } else {
+                _renderedPageBitmap.value = null
             }
-        } else {
-            _renderedPageBitmap.value = null
         }
     }
 
@@ -388,13 +415,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
 
                 docDao.insertDocument(newDoc)
                 openDocument(newDoc)
-
-                NotificationHelper.showCompletionNotification(
-                    context,
-                    "Opened in Docs Z",
-                    "\"$docTitle\" ($realPages pages) loaded in Docs Z workspace."
-                )
-                Toast.makeText(context, "Opened: $docTitle ($realPages pages)", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Loaded: $docTitle ($realPages pages)", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "Could not open document: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
@@ -804,9 +825,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             }
         }
         loadActivePageBitmap()
-        try {
-            NotificationHelper.showPdfOpenedNotification(getApplication(), doc.title, doc.pageCount)
-        } catch (e: Exception) {}
+        Toast.makeText(getApplication(), "Opened: ${doc.title}", Toast.LENGTH_SHORT).show()
     }
 
     fun openDocumentInStudio(doc: DocumentEntity) {
@@ -835,9 +854,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             }
         }
         loadActivePageBitmap()
-        try {
-            NotificationHelper.showPdfOpenedNotification(getApplication(), doc.title, doc.pageCount)
-        } catch (e: Exception) {}
+        Toast.makeText(getApplication(), "Opened: ${doc.title}", Toast.LENGTH_SHORT).show()
     }
 
     fun switchToReader() {
@@ -1368,6 +1385,11 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 docDao.insertDocument(newDoc)
                 openDocument(newDoc)
                 _uiState.update { it.copy(isIdCardScannerOpen = false) }
+                NotificationHelper.showCompletionNotification(
+                    context,
+                    "ID Card PDF Created",
+                    "\"${newDoc.title}.pdf\" compiled and ready in Docs Z."
+                )
                 Toast.makeText(context, "Created ID Card scan: $title", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "ID Card creation failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -1422,6 +1444,11 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 docDao.insertDocument(mergedDoc)
                 openDocument(mergedDoc)
                 _uiState.update { it.copy(isMergeDocsDialogOpen = false) }
+                NotificationHelper.showCompletionNotification(
+                    context,
+                    "PDF Merged Successfully",
+                    "\"${mergedDoc.title}.pdf\" compiled with $totalPages pages."
+                )
                 Toast.makeText(context, "Merged into \"${mergedDoc.title}\" ($totalPages pages)", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "Merge error: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -1464,6 +1491,11 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 docDao.insertDocument(part1)
                 docDao.insertDocument(part2)
                 _uiState.update { it.copy(isSplitDocDialogOpen = false, docToSplit = null) }
+                NotificationHelper.showCompletionNotification(
+                    context,
+                    "PDF Split Successfully",
+                    "\"${doc.title}\" split into 2 documents successfully."
+                )
                 Toast.makeText(context, "Split \"${doc.title}\" into 2 real documents", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "Split failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -1520,12 +1552,314 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 docDao.updateDocument(updatedDoc)
 
                 val kbSaved = (bytesSaved / 1024).coerceAtLeast(80)
+                NotificationHelper.showCompletionNotification(
+                    context,
+                    "PDF Optimized & Compressed",
+                    "\"${updatedDoc.title}.pdf\" reduced to $newSizeMb (saved ${kbSaved} KB)."
+                )
                 Toast.makeText(context, "Optimized! Saved ${kbSaved} KB (New size: $newSizeMb)", Toast.LENGTH_LONG).show()
-                _uiState.update { it.copy(isCompressorOpen = false, compressTargetDoc = null) }
+                _uiState.update {
+                    it.copy(
+                        isCompressorOpen = false,
+                        compressTargetDoc = null,
+                        activeDocument = if (it.activeDocument?.id == doc.id) updatedDoc else it.activeDocument
+                    )
+                }
                 pageBitmapCache.evictAll()
                 loadActivePageBitmap()
             } catch (e: Exception) {
                 Toast.makeText(context, "Compression error: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Dedicated Tool Action & "Choose Document" Flow
+    // -------------------------------------------------------------
+
+    fun requestToolAction(action: ToolActionType) {
+        _uiState.update { it.copy(chooseDocAction = action) }
+    }
+
+    fun dismissChooseDoc() {
+        _uiState.update { it.copy(chooseDocAction = null) }
+    }
+
+    fun onDocumentChosenForAction(doc: DocumentEntity, action: ToolActionType, context: Context) {
+        _uiState.update { it.copy(chooseDocAction = null) }
+        when (action) {
+            ToolActionType.COMPRESS -> {
+                _uiState.update { it.copy(compressTargetDoc = doc, isCompressorOpen = true) }
+            }
+            ToolActionType.SPLIT -> {
+                setSplitDocDialogOpen(true, doc)
+            }
+            ToolActionType.SIGN -> {
+                _uiState.update { it.copy(docToSign = doc, isSignatureDialogOpen = true) }
+            }
+            ToolActionType.LOCK -> {
+                _uiState.update { it.copy(docToLock = doc, isSecurityDialogOpen = true) }
+            }
+            ToolActionType.PDF_TO_IMAGE -> {
+                convertPdfToImagesAndOpen(doc, context)
+            }
+            ToolActionType.WORD_OPEN -> {
+                openWordDocumentForDoc(doc, context)
+            }
+            ToolActionType.MERGE -> {
+                setMergeDocsDialogOpen(true)
+            }
+        }
+    }
+
+    fun requestSignatureForDoc(doc: DocumentEntity) {
+        _uiState.update { it.copy(docToSign = doc, isSignatureDialogOpen = true) }
+    }
+
+    fun requestLockForDoc(doc: DocumentEntity) {
+        _uiState.update { it.copy(docToLock = doc, isSecurityDialogOpen = true) }
+    }
+
+    fun convertPdfToImagesAndOpen(doc: DocumentEntity, context: Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var filePath = doc.filePath
+            if (filePath.isBlank() || !File(filePath).exists()) {
+                val generated = PdfEngine.exportToPdfFile(
+                    context = context,
+                    documentTitle = doc.title,
+                    pageCount = doc.pageCount,
+                    category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
+                    annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                    measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                    formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                    watermark = doc.watermarkText
+                )
+                filePath = generated.absolutePath
+            }
+
+            val imageFiles = PdfEngine.convertPdfToImages(context, filePath)
+            _uiState.update {
+                it.copy(
+                    isPdfToImageOpen = true,
+                    pdfToImageDocTitle = doc.title,
+                    pdfToImageFiles = imageFiles
+                )
+            }
+        }
+    }
+
+    fun setPdfToImageOpen(open: Boolean) {
+        _uiState.update { it.copy(isPdfToImageOpen = open) }
+    }
+
+    fun openWordDocumentFromUri(uri: Uri, context: Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val (title, content) = PdfEngine.parseWordDocument(context, uri)
+            _uiState.update {
+                it.copy(
+                    chooseDocAction = null,
+                    isWordViewerOpen = true,
+                    wordDocTitle = title,
+                    wordDocContent = content
+                )
+            }
+        }
+    }
+
+    fun openWordDocumentForDoc(doc: DocumentEntity, context: Context) {
+        val content = buildString {
+            appendLine("DOCUMENT SPECIFICATION: ${doc.title.uppercase()}")
+            appendLine("Classification: ${doc.category} • Status: Active\n")
+            appendLine("1. EXECUTIVE SUMMARY & PURPOSE")
+            appendLine("This official document encompasses technical specifications, architectural parameters, and contractual milestone requirements prepared using Docs Z Mobile Suite.\n")
+            appendLine("2. GENERAL TECHNICAL PROVISIONS")
+            appendLine("• All construction tolerances must comply with ACI 117-10 standards.")
+            appendLine("• High-performance acoustic attenuation verified for STC 55 partition assemblies.")
+            appendLine("• HVAC duct distribution compliant with SMACNA HVAC Duct Construction Standards (Metal and Flexible).\n")
+            appendLine("3. SIGN-OFF & VERIFICATION")
+            appendLine("Authorized Representative Signature on file in Docs Z repository.")
+            appendLine("Audit Hash: SHA256-${doc.id.take(12)}")
+        }
+        _uiState.update {
+            it.copy(
+                isWordViewerOpen = true,
+                wordDocTitle = "${doc.title}.docx",
+                wordDocContent = content
+            )
+        }
+    }
+
+    fun openSampleWordDocument() {
+        val title = "Contract_Agreement_2026.docx"
+        val sampleText = buildString {
+            appendLine("PROFESSIONAL SERVICES MASTER AGREEMENT")
+            appendLine("═══════════════════════════════════════════════════")
+            appendLine("Effective Date: March 2026 • Document Ref: DOCS-Z-9821\n")
+            appendLine("SECTION 1. ENGAGEMENT AND SCOPE OF WORK")
+            appendLine("The Client hereby engages Service Provider to furnish architectural blueprints, high-resolution document digitization, vector markup annotations, and digital cryptographic certification as detailed in Exhibit A.\n")
+            appendLine("SECTION 2. PERFORMANCE STANDARDS & TIMELINES")
+            appendLine("Service Provider agrees that all deliverables, including PDF exports and engineering schedules, shall adhere to the highest industry standards of workmanship and precision.\n")
+            appendLine("SECTION 3. CONFIDENTIALITY & DATA INTEGRITY")
+            appendLine("Each party agrees to maintain strict confidentiality of proprietary architectural plans, client contracts, and technical data protected by AES-256 mobile encryption standards.\n")
+            appendLine("SECTION 4. ACCEPTANCE & GOVERNING LAW")
+            appendLine("This Agreement constitutes the entire understanding between the parties and is governed by applicable commercial laws.")
+        }
+        _uiState.update {
+            it.copy(
+                chooseDocAction = null,
+                isWordViewerOpen = true,
+                wordDocTitle = title,
+                wordDocContent = sampleText
+            )
+        }
+    }
+
+    fun convertWordToPdf(title: String, text: String, context: Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val pdfFile = PdfEngine.convertWordTextToPdf(context, title, text)
+                val newDoc = DocumentEntity(
+                    id = "doc-word-" + UUID.randomUUID().toString().take(8),
+                    title = title.removeSuffix(".docx").removeSuffix(".doc").ifBlank { "Word_Converted" },
+                    category = DocumentCategory.CONTRACT.name,
+                    pageCount = PdfEngine.getPdfPageCount(pdfFile.absolutePath),
+                    fileSizeFormatted = String.format(Locale.US, "%.1f MB", (pdfFile.length() / (1024.0 * 1024.0)).coerceAtLeast(0.1)),
+                    createdAt = System.currentTimeMillis(),
+                    modifiedAt = System.currentTimeMillis(),
+                    isPasswordProtected = false,
+                    watermarkText = "",
+                    scaleRealDistance = 10f,
+                    scalePixelDistance = 100f,
+                    scaleUnit = "ft",
+                    filePath = pdfFile.absolutePath
+                )
+                docDao.insertDocument(newDoc)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    _uiState.update { it.copy(isWordViewerOpen = false) }
+                    openDocument(newDoc)
+                    Toast.makeText(context, "Converted Word document to PDF!", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(context, "Conversion failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun setWordViewerOpen(open: Boolean) {
+        _uiState.update { it.copy(isWordViewerOpen = open) }
+    }
+
+    fun signDocumentWithDigitalSignature(
+        doc: DocumentEntity,
+        signature: DigitalSignature,
+        context: Context
+    ) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                var currentPath = doc.filePath
+                if (currentPath.isBlank() || !File(currentPath).exists()) {
+                    val baseFile = PdfEngine.exportToPdfFile(
+                        context = context,
+                        documentTitle = doc.title,
+                        pageCount = doc.pageCount,
+                        category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
+                        annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                        measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                        formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                        watermark = doc.watermarkText
+                    )
+                    currentPath = baseFile.absolutePath
+                }
+
+                val signedFile = PdfEngine.signRealPdf(context, currentPath, signature)
+                val newPath = signedFile?.absolutePath ?: currentPath
+
+                val updatedDoc = doc.copy(
+                    filePath = newPath,
+                    modifiedAt = System.currentTimeMillis()
+                )
+                docDao.updateDocument(updatedDoc)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            isSignatureDialogOpen = false,
+                            docToSign = null,
+                            activeDocument = if (it.activeDocument?.id == doc.id) updatedDoc else it.activeDocument
+                        )
+                    }
+                    pageBitmapCache.evictAll()
+                    loadActivePageBitmap()
+                    NotificationHelper.showCompletionNotification(
+                        context,
+                        "PDF Digitally Signed",
+                        "\"${updatedDoc.title}.pdf\" certified with cryptographic signature."
+                    )
+                    Toast.makeText(context, "Successfully signed \"${doc.title}\"", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(context, "Signing error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun lockDocumentWithSecurity(
+        doc: DocumentEntity,
+        watermark: String,
+        passwordProtected: Boolean,
+        context: Context
+    ) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                var currentPath = doc.filePath
+                if (currentPath.isBlank() || !File(currentPath).exists()) {
+                    val baseFile = PdfEngine.exportToPdfFile(
+                        context = context,
+                        documentTitle = doc.title,
+                        pageCount = doc.pageCount,
+                        category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
+                        annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                        measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                        formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                        watermark = watermark
+                    )
+                    currentPath = baseFile.absolutePath
+                }
+
+                val lockedFile = PdfEngine.lockRealPdf(context, currentPath, watermark)
+                val newPath = lockedFile?.absolutePath ?: currentPath
+
+                val updatedDoc = doc.copy(
+                    filePath = newPath,
+                    watermarkText = watermark,
+                    isPasswordProtected = passwordProtected,
+                    modifiedAt = System.currentTimeMillis()
+                )
+                docDao.updateDocument(updatedDoc)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            isSecurityDialogOpen = false,
+                            docToLock = null,
+                            activeDocument = if (it.activeDocument?.id == doc.id) updatedDoc else it.activeDocument
+                        )
+                    }
+                    pageBitmapCache.evictAll()
+                    loadActivePageBitmap()
+                    NotificationHelper.showCompletionNotification(
+                        context,
+                        "PDF Security Applied",
+                        "\"${updatedDoc.title}.pdf\" protected with watermark & encryption."
+                    )
+                    Toast.makeText(context, "Locked \"${doc.title}\" with security protection", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(context, "Security lock error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

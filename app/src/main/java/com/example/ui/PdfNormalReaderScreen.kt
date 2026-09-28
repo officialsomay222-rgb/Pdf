@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.example.model.AppThemeMode
 import com.example.model.DocumentEntity
+import com.example.ui.components.DocumentPageSkeleton
 import com.example.ui.theme.CamScannerTeal
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -90,18 +91,26 @@ fun PdfNormalReaderScreen(
 
     // Match initial reader theme with user's selected app theme
     val isAppDark = when (uiState.appThemeMode) {
-        AppThemeMode.DARK -> true
-        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK, AppThemeMode.OLED_BLACK -> true
+        AppThemeMode.LIGHT, AppThemeMode.WARM_SEPIA, AppThemeMode.NORDIC_FROST, AppThemeMode.SUNSET_AMBER -> false
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
 
-    var readerTheme by remember(isAppDark) {
-        mutableStateOf(if (isAppDark) ReaderThemeMode.DARK_NIGHT else ReaderThemeMode.LIGHT_WHITE)
+    var readerTheme by remember(isAppDark, uiState.appThemeMode) {
+        mutableStateOf(
+            when (uiState.appThemeMode) {
+                AppThemeMode.WARM_SEPIA -> ReaderThemeMode.SEPIA_WARM
+                AppThemeMode.DARK, AppThemeMode.OLED_BLACK -> ReaderThemeMode.DARK_NIGHT
+                AppThemeMode.LIGHT, AppThemeMode.NORDIC_FROST, AppThemeMode.SUNSET_AMBER -> ReaderThemeMode.LIGHT_WHITE
+                AppThemeMode.SYSTEM -> if (isAppDark) ReaderThemeMode.DARK_NIGHT else ReaderThemeMode.LIGHT_WHITE
+            }
+        )
     }
 
     var viewMode by remember { mutableStateOf(ReaderViewMode.CONTINUOUS_SCROLL) }
     var controlsVisible by remember { mutableStateOf(true) }
     var showThumbnailsSheet by remember { mutableStateOf(false) }
+    var showReaderToolsMenu by remember { mutableStateOf(false) }
 
     // Status bar icon colors synced with reader theme
     val isLightReader = readerTheme == ReaderThemeMode.LIGHT_WHITE || readerTheme == ReaderThemeMode.SEPIA_WARM
@@ -355,79 +364,142 @@ fun PdfNormalReaderScreen(
                         )
                     }
 
-                    // Reading Theme Switcher (Cycles: Light -> Sepia -> Night -> OLED)
-                    IconButton(
-                        onClick = {
-                            readerTheme = when (readerTheme) {
-                                ReaderThemeMode.LIGHT_WHITE -> ReaderThemeMode.SEPIA_WARM
-                                ReaderThemeMode.SEPIA_WARM -> ReaderThemeMode.DARK_NIGHT
-                                ReaderThemeMode.DARK_NIGHT -> ReaderThemeMode.OLED_BLACK
-                                ReaderThemeMode.OLED_BLACK -> ReaderThemeMode.LIGHT_WHITE
-                            }
-                        },
-                        modifier = Modifier.size(34.dp)
+                    // Top Bar Action Controls (Spacious, non-overlapping design)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(
-                            imageVector = when (readerTheme) {
-                                ReaderThemeMode.LIGHT_WHITE -> Icons.Default.LightMode
-                                ReaderThemeMode.SEPIA_WARM -> Icons.Default.MenuBook
-                                ReaderThemeMode.DARK_NIGHT -> Icons.Default.DarkMode
-                                ReaderThemeMode.OLED_BLACK -> Icons.Default.Brightness2
+                        // Reading Theme Switcher (Cycles: Light -> Sepia -> Night -> OLED)
+                        IconButton(
+                            onClick = {
+                                readerTheme = when (readerTheme) {
+                                    ReaderThemeMode.LIGHT_WHITE -> ReaderThemeMode.SEPIA_WARM
+                                    ReaderThemeMode.SEPIA_WARM -> ReaderThemeMode.DARK_NIGHT
+                                    ReaderThemeMode.DARK_NIGHT -> ReaderThemeMode.OLED_BLACK
+                                    ReaderThemeMode.OLED_BLACK -> ReaderThemeMode.LIGHT_WHITE
+                                }
                             },
-                            contentDescription = "Theme",
-                            tint = if (isLightReader) Color(0xFF475569) else Color(0xFFCBD5E1),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = when (readerTheme) {
+                                    ReaderThemeMode.LIGHT_WHITE -> Icons.Default.LightMode
+                                    ReaderThemeMode.SEPIA_WARM -> Icons.Default.MenuBook
+                                    ReaderThemeMode.DARK_NIGHT -> Icons.Default.DarkMode
+                                    ReaderThemeMode.OLED_BLACK -> Icons.Default.Brightness2
+                                },
+                                contentDescription = "Theme",
+                                tint = if (isLightReader) Color(0xFF475569) else Color(0xFFCBD5E1),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
 
-                    // Share Button
-                    IconButton(
-                        onClick = {
-                            if (activeDoc != null) {
-                                viewModel.openDocument(activeDoc)
-                                viewModel.exportDocument(context)
+                        // Share Button
+                        IconButton(
+                            onClick = {
+                                if (activeDoc != null) {
+                                    viewModel.openDocument(activeDoc)
+                                    viewModel.exportDocument(context)
+                                }
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = "Share",
+                                tint = if (isLightReader) Color(0xFF475569) else Color(0xFFCBD5E1),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Studio Editor Button
+                        Button(
+                            onClick = {
+                                if (activeDoc != null) {
+                                    onOpenInStudio(activeDoc)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CamScannerTeal,
+                                contentColor = Color.White
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .height(32.dp)
+                                .testTag("open_studio_button")
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                "Edit",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // More PDF Tools Dropdown Menu (prevents horizontal button collision)
+                        Box {
+                            IconButton(
+                                onClick = { showReaderToolsMenu = true },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "More Tools",
+                                    tint = if (isLightReader) Color(0xFF475569) else Color(0xFFCBD5E1),
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
-                        },
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Share,
-                            contentDescription = "Share",
-                            tint = if (isLightReader) Color(0xFF475569) else Color(0xFFCBD5E1),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
 
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    // Studio Editor Button
-                    Button(
-                        onClick = {
-                            if (activeDoc != null) {
-                                onOpenInStudio(activeDoc)
+                            DropdownMenu(
+                                expanded = showReaderToolsMenu,
+                                onDismissRequest = { showReaderToolsMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Sign Document") },
+                                    leadingIcon = { Icon(Icons.Default.Draw, contentDescription = null, tint = CamScannerTeal) },
+                                    onClick = {
+                                        showReaderToolsMenu = false
+                                        if (activeDoc != null) {
+                                            viewModel.requestSignatureForDoc(activeDoc)
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Lock & Encrypt") },
+                                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = CamScannerTeal) },
+                                    onClick = {
+                                        showReaderToolsMenu = false
+                                        if (activeDoc != null) {
+                                            viewModel.requestLockForDoc(activeDoc)
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Compress PDF") },
+                                    leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null, tint = CamScannerTeal) },
+                                    onClick = {
+                                        showReaderToolsMenu = false
+                                        if (activeDoc != null) {
+                                            viewModel.openCompressorForDoc(activeDoc)
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Page Thumbnails") },
+                                    leadingIcon = { Icon(Icons.Default.AutoStories, contentDescription = null, tint = CamScannerTeal) },
+                                    onClick = {
+                                        showReaderToolsMenu = false
+                                        showThumbnailsSheet = true
+                                    }
+                                )
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = CamScannerTeal,
-                            contentColor = Color.White
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .height(32.dp)
-                            .testTag("open_studio_button")
-                    ) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = null,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            "Edit",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        }
                     }
                 }
             }
@@ -874,25 +946,44 @@ private fun CleanPdfPageCard(
                     .clip(RoundedCornerShape(4.dp))
             )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(if (isThumbnail) 130.dp else 420.dp)
-                    .background(cardBg),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        color = CamScannerTeal,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(24.dp)
-                    )
-                } else {
-                    Text(
-                        text = "Page ${pageIndex + 1}",
-                        color = Color.Gray.copy(alpha = 0.7f),
-                        fontSize = 12.sp
-                    )
+            if (isLoading) {
+                DocumentPageSkeleton(
+                    modifier = Modifier.fillMaxWidth(),
+                    height = if (isThumbnail) 130.dp else 420.dp
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (isThumbnail) 130.dp else 420.dp)
+                        .background(cardBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            tint = CamScannerTeal.copy(alpha = 0.6f),
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Page ${pageIndex + 1}",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Tap to load preview",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         }

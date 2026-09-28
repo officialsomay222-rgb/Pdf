@@ -41,7 +41,7 @@ fun PdfCompressorDialog(
     onCompress: (document: DocumentEntity, quality: String) -> Unit
 ) {
     val context = LocalContext.current
-    var currentDoc by remember { mutableStateOf(document ?: allDocuments.firstOrNull()) }
+    var currentDoc by remember(document) { mutableStateOf(document ?: allDocuments.firstOrNull()) }
     var selectedQuality by remember { mutableStateOf("MEDIUM") } // HIGH, MEDIUM, LOW
     var showDocSelector by remember { mutableStateOf(false) }
 
@@ -100,6 +100,12 @@ fun PdfCompressorDialog(
         else -> 20
     }
 
+    var isInitializing by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(120)
+        isInitializing = false
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier
@@ -144,7 +150,9 @@ fun PdfCompressorDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Document Selection / Upload Section
-                if (currentDoc != null) {
+                if (isInitializing) {
+                    PdfToolComponentSkeleton(height = 68.dp)
+                } else if (currentDoc != null) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),

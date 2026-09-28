@@ -25,6 +25,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -218,7 +221,7 @@ fun HomeScreen(
         ) {
             Crossfade(
                 targetState = uiState.activeNavTab,
-                animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+                animationSpec = tween(durationMillis = 50, easing = LinearEasing),
                 label = "activeTabCrossfade"
             ) { targetTab ->
                 when (targetTab) {
@@ -399,6 +402,56 @@ private fun CapsuleTabItem(
 }
 
 // -------------------------------------------------------------
+// STAGGERED CAPSULE ENTRANCE CONTAINER
+// -------------------------------------------------------------
+
+@Composable
+private fun StaggeredCapsuleContainer(
+    index: Int,
+    isLoaded: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (isLoaded) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = 320,
+            delayMillis = (index * 50).coerceAtMost(350),
+            easing = FastOutSlowInEasing
+        ),
+        label = "capsuleAlpha_$index"
+    )
+    val animatedOffsetY by animateDpAsState(
+        targetValue = if (isLoaded) 0.dp else (22.dp + (index * 3).dp),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "capsuleOffset_$index"
+    )
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isLoaded) 1f else 0.95f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "capsuleScale_$index"
+    )
+
+    Box(
+        modifier = modifier
+            .offset(y = animatedOffsetY)
+            .graphicsLayer {
+                alpha = animatedAlpha
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
+    ) {
+        content()
+    }
+}
+
+// -------------------------------------------------------------
 // TAB 1: DOCS (HOME SCREEN)
 // -------------------------------------------------------------
 
@@ -416,6 +469,12 @@ private fun DocsTabHomeContent(
     val context = LocalContext.current
     var showSortMenu by remember { mutableStateOf(false) }
     var actionSheetDoc by remember { mutableStateOf<DocumentEntity?>(null) }
+    var screenLoaded by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(20)
+        screenLoaded = true
+    }
 
     // PDF & Document File Picker Launcher
     val pdfPicker = rememberLauncherForActivityResult(
@@ -461,11 +520,9 @@ private fun DocsTabHomeContent(
                 },
                 appThemeMode = uiState.appThemeMode,
                 onToggleTheme = {
-                    val nextTheme = when (uiState.appThemeMode) {
-                        AppThemeMode.LIGHT -> AppThemeMode.DARK
-                        AppThemeMode.DARK -> AppThemeMode.SYSTEM
-                        AppThemeMode.SYSTEM -> AppThemeMode.LIGHT
-                    }
+                    val allThemes = AppThemeMode.entries
+                    val currentIndex = allThemes.indexOf(uiState.appThemeMode)
+                    val nextTheme = allThemes[(currentIndex + 1) % allThemes.size]
                     viewModel.setAppThemeMode(nextTheme)
                 },
                 onOpenSortMenu = { showSortMenu = true },
@@ -511,87 +568,95 @@ private fun DocsTabHomeContent(
         ) {
             // 1. Quick Tool Action Shortcuts Carousel (CamScanner Style)
             item {
-                CamScannerShortcutCarousel(
-                    onShortcutClick = { shortcut ->
-                        when (shortcut) {
-                            WorkflowShortcut.ID_CARD_SCAN -> viewModel.setIdCardScannerOpen(true)
-                            WorkflowShortcut.IMAGE_TO_PDF -> viewModel.setNavTab(CamScannerNavTab.SCAN)
-                            WorkflowShortcut.PDF_COMPRESSOR -> {
-                                if (activeDoc != null) viewModel.openCompressorForDoc(activeDoc)
-                                else if (filteredDocs.isNotEmpty()) viewModel.openCompressorForDoc(filteredDocs.first())
-                                else onLaunchWorkflow(shortcut)
+                StaggeredCapsuleContainer(index = 1, isLoaded = screenLoaded) {
+                    CamScannerShortcutCarousel(
+                        onShortcutClick = { shortcut ->
+                            when (shortcut) {
+                                WorkflowShortcut.ID_CARD_SCAN -> viewModel.setIdCardScannerOpen(true)
+                                WorkflowShortcut.IMAGE_TO_PDF -> viewModel.setNavTab(CamScannerNavTab.SCAN)
+                                WorkflowShortcut.PDF_COMPRESSOR -> {
+                                    if (activeDoc != null) viewModel.openCompressorForDoc(activeDoc)
+                                    else if (filteredDocs.isNotEmpty()) viewModel.openCompressorForDoc(filteredDocs.first())
+                                    else onLaunchWorkflow(shortcut)
+                                }
+                                WorkflowShortcut.OCR_TO_TEXT -> {
+                                    val target = activeDoc ?: filteredDocs.firstOrNull()
+                                    if (target != null) viewModel.extractTextFromDoc(target)
+                                    else Toast.makeText(context, "No document loaded to extract text", Toast.LENGTH_SHORT).show()
+                                }
+                                WorkflowShortcut.MERGE_PDFS -> viewModel.setMergeDocsDialogOpen(true)
+                                else -> onLaunchWorkflow(shortcut)
                             }
-                            WorkflowShortcut.OCR_TO_TEXT -> {
-                                val target = activeDoc ?: filteredDocs.firstOrNull()
-                                if (target != null) viewModel.extractTextFromDoc(target)
-                                else Toast.makeText(context, "No document loaded to extract text", Toast.LENGTH_SHORT).show()
-                            }
-                            WorkflowShortcut.MERGE_PDFS -> viewModel.setMergeDocsDialogOpen(true)
-                            else -> onLaunchWorkflow(shortcut)
                         }
-                    }
-                )
+                    )
+                }
             }
 
             // 2. Folder Tabs & Filter Chips Row
             item {
-                CategoryChipsRow(
-                    selectedCategory = uiState.selectedCategoryFilter,
-                    onSelectCategory = { viewModel.setCategoryFilter(it) }
-                )
+                StaggeredCapsuleContainer(index = 2, isLoaded = screenLoaded) {
+                    CategoryChipsRow(
+                        selectedCategory = uiState.selectedCategoryFilter,
+                        onSelectCategory = { viewModel.setCategoryFilter(it) }
+                    )
+                }
             }
 
             // 3. Featured / Recent Scanned Document Resume Card
             if (activeDoc != null && activeTab != null) {
                 item {
-                    FeaturedDocumentCard(
-                        doc = activeDoc,
-                        tab = activeTab,
-                        onResume = onResumeWorkspace,
-                        onExport = { viewModel.exportDocument(context) },
-                        onCompress = { viewModel.openCompressorForDoc(activeDoc) },
-                        onOcr = { viewModel.extractTextFromDoc(activeDoc) }
-                    )
+                    StaggeredCapsuleContainer(index = 3, isLoaded = screenLoaded) {
+                        FeaturedDocumentCard(
+                            doc = activeDoc,
+                            tab = activeTab,
+                            onResume = onResumeWorkspace,
+                            onExport = { viewModel.exportDocument(context) },
+                            onCompress = { viewModel.openCompressorForDoc(activeDoc) },
+                            onOcr = { viewModel.extractTextFromDoc(activeDoc) }
+                        )
+                    }
                 }
             }
 
             // Active Folder Filter Indicator (if a specific folder is selected)
             if (uiState.selectedFolder != "All Docs") {
                 item {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = CamScannerTeal.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    StaggeredCapsuleContainer(index = 4, isLoaded = screenLoaded) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = CamScannerTeal.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.Folder,
-                                    contentDescription = null,
-                                    tint = CamScannerTeal,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Folder: ${uiState.selectedFolder} (${filteredDocs.size} docs)",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            TextButton(
-                                onClick = { viewModel.setSelectedFolder("All Docs") },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(28.dp)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Clear Filter", fontSize = 11.sp, color = CamScannerTeal, fontWeight = FontWeight.Bold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Folder,
+                                        contentDescription = null,
+                                        tint = CamScannerTeal,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Folder: ${uiState.selectedFolder} (${filteredDocs.size} docs)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { viewModel.setSelectedFolder("All Docs") },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Text("Clear Filter", fontSize = 11.sp, color = CamScannerTeal, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
@@ -600,43 +665,45 @@ private fun DocsTabHomeContent(
 
             // 4. Section Header with View All & Multi-select trigger
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "ALL DOCUMENTS",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
+                StaggeredCapsuleContainer(index = 5, isLoaded = screenLoaded) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "${filteredDocs.size}",
-                                fontSize = 10.sp,
+                                text = "ALL DOCUMENTS",
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "${filteredDocs.size}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-                    }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(
-                            onClick = { viewModel.setMultiSelectMode(!uiState.isMultiSelectMode) },
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                        ) {
-                            Icon(Icons.Default.CheckCircleOutline, contentDescription = null, modifier = Modifier.size(14.dp), tint = CamScannerTeal)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Select", fontSize = 12.sp, color = CamScannerTeal, fontWeight = FontWeight.Medium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { viewModel.setMultiSelectMode(!uiState.isMultiSelectMode) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircleOutline, contentDescription = null, modifier = Modifier.size(14.dp), tint = CamScannerTeal)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Select", fontSize = 12.sp, color = CamScannerTeal, fontWeight = FontWeight.Medium)
+                            }
                         }
                     }
                 }
@@ -645,46 +712,52 @@ private fun DocsTabHomeContent(
             // 5. Documents Grid or List
             if (filteredDocs.isEmpty()) {
                 item {
-                    EmptyDocumentsPlaceholder(
-                        onOpenScan = { viewModel.setNavTab(CamScannerNavTab.SCAN) },
-                        onOpenImport = { pdfPicker.launch(arrayOf("application/pdf", "image/*")) },
-                        onOpenCreate = { viewModel.setCreateProjectDialogOpen(true) }
-                    )
+                    StaggeredCapsuleContainer(index = 6, isLoaded = screenLoaded) {
+                        EmptyDocumentsPlaceholder(
+                            onOpenScan = { viewModel.setNavTab(CamScannerNavTab.SCAN) },
+                            onOpenImport = { pdfPicker.launch(arrayOf("application/pdf", "image/*")) },
+                            onOpenCreate = { viewModel.setCreateProjectDialogOpen(true) }
+                        )
+                    }
                 }
             } else {
                 if (uiState.docViewMode == DocViewMode.LIST) {
-                    items(filteredDocs, key = { it.id }) { doc ->
-                        DocZListItemCard(
-                            document = doc,
-                            isSelected = uiState.selectedDocIds.contains(doc.id),
-                            isMultiSelectMode = uiState.isMultiSelectMode,
-                            onToggleSelect = { viewModel.toggleSelectDoc(doc.id) },
-                            onOpen = { onOpenDocument(doc) },
-                            onOpenStudio = { viewModel.openDocumentInStudio(doc) },
-                            onOpenMore = { actionSheetDoc = doc }
-                        )
+                    itemsIndexed(filteredDocs, key = { _, doc -> doc.id }) { index, doc ->
+                        StaggeredCapsuleContainer(index = 6 + index.coerceAtMost(6), isLoaded = screenLoaded) {
+                            DocZListItemCard(
+                                document = doc,
+                                isSelected = uiState.selectedDocIds.contains(doc.id),
+                                isMultiSelectMode = uiState.isMultiSelectMode,
+                                onToggleSelect = { viewModel.toggleSelectDoc(doc.id) },
+                                onOpen = { onOpenDocument(doc) },
+                                onOpenStudio = { viewModel.openDocumentInStudio(doc) },
+                                onOpenMore = { actionSheetDoc = doc }
+                            )
+                        }
                     }
                 } else {
                     // Grid View
                     item {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 1200.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(filteredDocs, key = { it.id }) { doc ->
-                                DocZGridItemCard(
-                                    document = doc,
-                                    isSelected = uiState.selectedDocIds.contains(doc.id),
-                                    isMultiSelectMode = uiState.isMultiSelectMode,
-                                    onToggleSelect = { viewModel.toggleSelectDoc(doc.id) },
-                                    onOpen = { onOpenDocument(doc) },
-                                    onOpenStudio = { viewModel.openDocumentInStudio(doc) },
-                                    onOpenMore = { actionSheetDoc = doc }
-                                )
+                        StaggeredCapsuleContainer(index = 6, isLoaded = screenLoaded) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 1200.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(filteredDocs, key = { it.id }) { doc ->
+                                    DocZGridItemCard(
+                                        document = doc,
+                                        isSelected = uiState.selectedDocIds.contains(doc.id),
+                                        isMultiSelectMode = uiState.isMultiSelectMode,
+                                        onToggleSelect = { viewModel.toggleSelectDoc(doc.id) },
+                                        onOpen = { onOpenDocument(doc) },
+                                        onOpenStudio = { viewModel.openDocumentInStudio(doc) },
+                                        onOpenMore = { actionSheetDoc = doc }
+                                    )
+                                }
                             }
                         }
                     }
@@ -762,154 +835,238 @@ private fun DocsZTopBar(
     onOpenSortMenu: () -> Unit,
     onImportFiles: () -> Unit
 ) {
+    var isSearchExpanded by rememberSaveable { mutableStateOf(searchQuery.isNotEmpty()) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .statusBarsPadding()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // App Identity & Luxury Search Bar with Crystal Clear Text Display
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .testTag("home_search_input"),
-                shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.35f))
-            ) {
+        AnimatedContent(
+            targetState = isSearchExpanded,
+            transitionSpec = {
+                (fadeIn(animationSpec = tween(180)) + expandHorizontally())
+                    .togetherWith(fadeOut(animationSpec = tween(140)) + shrinkHorizontally())
+            },
+            label = "searchBarExpand"
+        ) { expanded ->
+            if (expanded) {
+                // Extended Full-Width Search Bar
                 Row(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 12.dp),
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = CamScannerTeal,
-                        modifier = Modifier.size(19.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier.weight(1f),
-                        contentAlignment = Alignment.CenterStart
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .testTag("home_search_input"),
+                        shape = RoundedCornerShape(22.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                        border = BorderStroke(1.dp, CamScannerTeal.copy(alpha = 0.5f))
                     ) {
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = "Search docs, tags, text...",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                                maxLines = 1
-                            )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    onSearchChange("")
+                                    isSearchExpanded = false
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Collapse search",
+                                    tint = CamScannerTeal,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Box(
+                                modifier = Modifier.weight(1f),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Search docs, tags, text...",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                        maxLines = 1
+                                    )
+                                }
+                                BasicTextField(
+                                    value = searchQuery,
+                                    onValueChange = onSearchChange,
+                                    singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    cursorBrush = androidx.compose.ui.graphics.SolidColor(CamScannerTeal),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { onSearchChange("") },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Clear search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = onSearchChange,
-                            singleLine = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
-                            ),
-                            cursorBrush = androidx.compose.ui.graphics.SolidColor(CamScannerTeal),
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { onSearchChange("") },
-                            modifier = Modifier.size(24.dp)
+                }
+            } else {
+                // Collapsed Compact Bar with Search as an Icon Button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // DOCS Z Brand Logo Pill (Compact, non-crowding)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = CamScannerTeal,
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = "Clear search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                imageVector = Icons.Default.DocumentScanner,
+                                contentDescription = null,
+                                tint = Color.White,
                                 modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "DOCS Z",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+
+                    // Action Icons Row (Well-proportioned to prevent overlay on any screen)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Expandable Search Button (Icon Capsule)
+                        IconButton(
+                            onClick = { isSearchExpanded = true },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(CamScannerTeal.copy(alpha = 0.12f))
+                                .border(0.5.dp, CamScannerTeal.copy(alpha = 0.4f), CircleShape)
+                                .testTag("home_search_expand_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = CamScannerTeal,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Import Document / PDF Button
+                        IconButton(
+                            onClick = onImportFiles,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(CamScannerTeal.copy(alpha = 0.12f))
+                                .border(0.5.dp, CamScannerTeal.copy(alpha = 0.4f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileOpen,
+                                contentDescription = "Import PDF",
+                                tint = CamScannerTeal,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
+                        // View Mode Toggle (List vs Grid)
+                        IconButton(
+                            onClick = onToggleViewMode,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (docViewMode == DocViewMode.LIST) Icons.Default.GridView else Icons.Default.ViewList,
+                                contentDescription = "Toggle View",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
+                        // Sort Selector
+                        IconButton(
+                            onClick = onOpenSortMenu,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sort,
+                                contentDescription = "Sort",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
+                        // Theme Toggle (Supports all 7 themes)
+                        IconButton(
+                            onClick = onToggleTheme,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = when (appThemeMode) {
+                                    AppThemeMode.LIGHT -> Icons.Default.LightMode
+                                    AppThemeMode.DARK -> Icons.Default.DarkMode
+                                    AppThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
+                                    AppThemeMode.OLED_BLACK -> Icons.Default.NightlightRound
+                                    AppThemeMode.WARM_SEPIA -> Icons.Default.MenuBook
+                                    AppThemeMode.NORDIC_FROST -> Icons.Default.AcUnit
+                                    AppThemeMode.SUNSET_AMBER -> Icons.Default.WbSunny
+                                },
+                                contentDescription = "Theme Mode",
+                                tint = CamScannerTeal,
+                                modifier = Modifier.size(17.dp)
                             )
                         }
                     }
                 }
-            }
-
-            // Import Document / PDF Button
-            IconButton(
-                onClick = onImportFiles,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(CamScannerTeal.copy(alpha = 0.12f))
-                    .border(0.5.dp, CamScannerTeal.copy(alpha = 0.4f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FileOpen,
-                    contentDescription = "Import PDF",
-                    tint = CamScannerTeal,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            // View Mode Toggle (List vs Grid)
-            IconButton(
-                onClick = onToggleViewMode,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = if (docViewMode == DocViewMode.LIST) Icons.Default.GridView else Icons.Default.ViewList,
-                    contentDescription = "Toggle View",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            // Sort Selector
-            IconButton(
-                onClick = onOpenSortMenu,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Sort,
-                    contentDescription = "Sort",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            // Theme Toggle (Light ☀️ / Dark 🌙 / System ⚙️)
-            IconButton(
-                onClick = onToggleTheme,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = when (appThemeMode) {
-                        AppThemeMode.LIGHT -> Icons.Default.LightMode
-                        AppThemeMode.DARK -> Icons.Default.DarkMode
-                        AppThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
-                    },
-                    contentDescription = "Theme Mode",
-                    tint = CamScannerTeal,
-                    modifier = Modifier.size(18.dp)
-                )
             }
         }
     }
@@ -1460,102 +1617,184 @@ private fun ToolsTabContent(
 ) {
     val context = LocalContext.current
 
+    val toolsList = remember {
+        listOf(
+            ToolCardItem(
+                title = "Word Opener",
+                subtitle = "Open, read & convert .docx to PDF",
+                icon = Icons.Default.Description,
+                color = Color(0xFF2563EB)
+            ) {
+                viewModel.requestToolAction(com.example.model.ToolActionType.WORD_OPEN)
+            },
+            ToolCardItem(
+                title = "Image to PDF",
+                subtitle = "Photos & camera scans to PDF",
+                icon = Icons.Default.PictureAsPdf,
+                color = Color(0xFFEF4444)
+            ) {
+                viewModel.setPdfMakerOpen(true)
+            },
+            ToolCardItem(
+                title = "PDF to Image",
+                subtitle = "Export PDF pages as JPG images",
+                icon = Icons.Default.Collections,
+                color = Color(0xFF8B5CF6)
+            ) {
+                viewModel.requestToolAction(com.example.model.ToolActionType.PDF_TO_IMAGE)
+            },
+            ToolCardItem(
+                title = "PDF Compressor",
+                subtitle = "Reduce PDF file size up to 60%",
+                icon = Icons.Default.Compress,
+                color = Color(0xFF0284C7)
+            ) {
+                viewModel.requestToolAction(com.example.model.ToolActionType.COMPRESS)
+            },
+            ToolCardItem(
+                title = "PDF Merger",
+                subtitle = "Combine multiple PDFs into one",
+                icon = Icons.Default.CallMerge,
+                color = Color(0xFFEC4899)
+            ) {
+                viewModel.requestToolAction(com.example.model.ToolActionType.MERGE)
+            },
+            ToolCardItem(
+                title = "PDF Splitter",
+                subtitle = "Divide PDF into separate pages",
+                icon = Icons.Default.CallSplit,
+                color = Color(0xFFF59E0B)
+            ) {
+                viewModel.requestToolAction(com.example.model.ToolActionType.SPLIT)
+            },
+            ToolCardItem(
+                title = "PDF Sign",
+                subtitle = "Draw & stamp digital signatures",
+                icon = Icons.Default.Draw,
+                color = Color(0xFF10B981)
+            ) {
+                viewModel.requestToolAction(com.example.model.ToolActionType.SIGN)
+            },
+            ToolCardItem(
+                title = "PDF Lock",
+                subtitle = "Password protect & encrypt PDF",
+                icon = Icons.Default.Lock,
+                color = Color(0xFFDC2626)
+            ) {
+                viewModel.requestToolAction(com.example.model.ToolActionType.LOCK)
+            }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text(
-                text = "Docs Z Tool Hub",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = "All mobile scanning, PDF conversion & editor utilities",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Docs Z Tool Hub",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "8 Essential High-Speed Document Utilities",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(CamScannerTeal.copy(alpha = 0.15f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("PRO SUITE", color = CamScannerTeal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
-        // Section 1: Scan & Capture
-        item {
-            ToolCategorySection(
-                title = "SCAN & CAPTURE",
-                tools = listOf(
-                    ToolCardItem("ID Card (2-in-1)", "Front & back on 1 page", Icons.Default.Badge, Color(0xFF00897B)) {
-                        viewModel.setIdCardScannerOpen(true)
-                    },
-                    ToolCardItem("Smart Camera Scan", "Camera doc scanner", Icons.Default.CameraAlt, Color(0xFF10B981)) {
-                        viewModel.setNavTab(CamScannerNavTab.SCAN)
-                    },
-                    ToolCardItem("Book Scan", "2-page spread split", Icons.Default.MenuBook, Color(0xFF0284C7)) {
-                        viewModel.setNavTab(CamScannerNavTab.SCAN)
-                    },
-                    ToolCardItem("Batch Scan", "Rapid multi-sheet", Icons.Default.Collections, Color(0xFF8B5CF6)) {
-                        viewModel.setNavTab(CamScannerNavTab.SCAN)
+        // Render 8 Tools cleanly in pairs of 2 without heavy sub-grids
+        items(toolsList.chunked(2)) { rowTools ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                for (tool in rowTools) {
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(105.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable(onClick = tool.onClick)
+                            .border(1.dp, tool.color.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                            .testTag("tool_card_${tool.title.lowercase().replace(" ", "_")}"),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(tool.color.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(tool.icon, contentDescription = null, tint = tool.color, modifier = Modifier.size(20.dp))
+                                }
+                                Icon(
+                                    Icons.Default.ArrowOutward,
+                                    contentDescription = null,
+                                    tint = tool.color.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = tool.title,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = tool.subtitle,
+                                    fontSize = 9.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
-                )
-            )
-        }
-
-        // Section 2: Convert & Export
-        item {
-            ToolCategorySection(
-                title = "CONVERT & EXPORT",
-                tools = listOf(
-                    ToolCardItem("Image to PDF", "Photos to clean PDF", Icons.Default.PictureAsPdf, Color(0xFFEF4444)) {
-                        viewModel.setPdfMakerOpen(true)
-                    },
-                    ToolCardItem("Text OCR", "Extract text from doc", Icons.Default.TextFields, Color(0xFF06B6D4)) {
-                        val target = uiState.activeDocument ?: uiState.documents.firstOrNull()
-                        if (target != null) viewModel.extractTextFromDoc(target)
-                        else Toast.makeText(context, "Please select or open a document first", Toast.LENGTH_SHORT).show()
-                    },
-                    ToolCardItem("Merge PDFs", "Combine documents", Icons.Default.CallMerge, Color(0xFFEC4899)) {
-                        viewModel.setMergeDocsDialogOpen(true)
-                    },
-                    ToolCardItem("Split PDF", "Extract & divide pages", Icons.Default.CallSplit, Color(0xFFF59E0B)) {
-                        val target = uiState.activeDocument ?: uiState.documents.firstOrNull()
-                        if (target != null) viewModel.setSplitDocDialogOpen(true, target)
-                        else Toast.makeText(context, "Please select or open a document first", Toast.LENGTH_SHORT).show()
-                    }
-                )
-            )
-        }
-
-        // Section 3: PDF Utilities & Edit
-        item {
-            ToolCategorySection(
-                title = "PDF UTILITIES & EDIT",
-                tools = listOf(
-                    ToolCardItem("PDF Compressor", "Upload PDF & reduce size", Icons.Default.Compress, Color(0xFF0284C7)) {
-                        viewModel.setCompressorOpen(true)
-                    },
-                    ToolCardItem("Markup & Edit", "Pen, highlighter & stamps", Icons.Default.Edit, Color(0xFF38BDF8)) {
-                        onLaunchWorkflow(WorkflowShortcut.MARKUP_ANNOTATE)
-                    },
-                    ToolCardItem("CAD Rulers", "Scale, lengths & areas", Icons.Default.SquareFoot, Color(0xFFF59E0B)) {
-                        onLaunchWorkflow(WorkflowShortcut.CAD_MEASURE)
-                    },
-                    ToolCardItem("Sign & Fill", "Digital signatures", Icons.Default.AssignmentTurnedIn, Color(0xFF10B981)) {
-                        onLaunchWorkflow(WorkflowShortcut.FORMS_AND_SIGN)
-                    },
-                    ToolCardItem("Page Assembly", "Reorder & rotate pages", Icons.Default.AutoStories, Color(0xFF6366F1)) {
-                        onLaunchWorkflow(WorkflowShortcut.PAGE_ASSEMBLY)
-                    },
-                    ToolCardItem("Security & Protect", "Password & watermark", Icons.Default.Security, Color(0xFFEF4444)) {
-                        onLaunchWorkflow(WorkflowShortcut.SECURITY_WATERMARK)
-                    }
-                )
-            )
+                }
+                if (rowTools.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
         }
 
         item {
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
@@ -1567,65 +1806,6 @@ private data class ToolCardItem(
     val color: Color,
     val onClick: () -> Unit
 )
-
-@Composable
-private fun ToolCategorySection(
-    title: String,
-    tools: List<ToolCardItem>
-) {
-    Column {
-        Text(
-            text = title,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.5.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 400.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(tools) { item ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(86.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable(onClick = item.onClick)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), RoundedCornerShape(10.dp)),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(item.color.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(item.icon, contentDescription = null, tint = item.color, modifier = Modifier.size(18.dp))
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(item.title, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                            Text(item.subtitle, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, lineHeight = 11.sp)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 // -------------------------------------------------------------
 // TAB 3: SCAN STUDIO (Camera Shutter & Multi-photo Picker)
@@ -2145,32 +2325,74 @@ private fun SettingsTabContent(
                     Text("APPEARANCE & THEME", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    // Row 1: Primary Dark & Light Modes
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         ThemeOptionButton(
-                            label = "Light (White)",
+                            label = "Light",
                             icon = Icons.Default.LightMode,
                             isSelected = uiState.appThemeMode == AppThemeMode.LIGHT,
                             onClick = { viewModel.setAppThemeMode(AppThemeMode.LIGHT) },
                             modifier = Modifier.weight(1f)
                         )
                         ThemeOptionButton(
-                            label = "Dark (Black)",
+                            label = "Dark",
                             icon = Icons.Default.DarkMode,
                             isSelected = uiState.appThemeMode == AppThemeMode.DARK,
                             onClick = { viewModel.setAppThemeMode(AppThemeMode.DARK) },
                             modifier = Modifier.weight(1f)
                         )
                         ThemeOptionButton(
-                            label = "System Auto",
-                            icon = Icons.Default.BrightnessAuto,
-                            isSelected = uiState.appThemeMode == AppThemeMode.SYSTEM,
-                            onClick = { viewModel.setAppThemeMode(AppThemeMode.SYSTEM) },
+                            label = "AMOLED",
+                            icon = Icons.Default.NightlightRound,
+                            isSelected = uiState.appThemeMode == AppThemeMode.OLED_BLACK,
+                            onClick = { viewModel.setAppThemeMode(AppThemeMode.OLED_BLACK) },
                             modifier = Modifier.weight(1f)
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Row 2: Reading & Tinted Themes
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ThemeOptionButton(
+                            label = "Sepia",
+                            icon = Icons.Default.MenuBook,
+                            isSelected = uiState.appThemeMode == AppThemeMode.WARM_SEPIA,
+                            onClick = { viewModel.setAppThemeMode(AppThemeMode.WARM_SEPIA) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        ThemeOptionButton(
+                            label = "Frost",
+                            icon = Icons.Default.AcUnit,
+                            isSelected = uiState.appThemeMode == AppThemeMode.NORDIC_FROST,
+                            onClick = { viewModel.setAppThemeMode(AppThemeMode.NORDIC_FROST) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        ThemeOptionButton(
+                            label = "Amber",
+                            icon = Icons.Default.WbSunny,
+                            isSelected = uiState.appThemeMode == AppThemeMode.SUNSET_AMBER,
+                            onClick = { viewModel.setAppThemeMode(AppThemeMode.SUNSET_AMBER) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Row 3: Follow OS System Auto
+                    ThemeOptionButton(
+                        label = "System Auto (Follow Device Default)",
+                        icon = Icons.Default.BrightnessAuto,
+                        isSelected = uiState.appThemeMode == AppThemeMode.SYSTEM,
+                        onClick = { viewModel.setAppThemeMode(AppThemeMode.SYSTEM) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }

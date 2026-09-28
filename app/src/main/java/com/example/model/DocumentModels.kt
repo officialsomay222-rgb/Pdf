@@ -4,10 +4,14 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import java.util.UUID
 
-enum class AppThemeMode {
-    SYSTEM,
-    LIGHT,
-    DARK
+enum class AppThemeMode(val displayName: String, val subtitle: String) {
+    SYSTEM("System Auto", "Follow OS theme settings"),
+    LIGHT("Emerald Light", "Crisp white with teal accents"),
+    DARK("Midnight Dark", "Deep slate navy dark theme"),
+    OLED_BLACK("AMOLED Pure Black", "True pitch black for OLED battery saving"),
+    WARM_SEPIA("Warm Paper Sepia", "Gentle sepia for comfortable reading"),
+    NORDIC_FROST("Nordic Frost", "Cool arctic blue & snow storm tones"),
+    SUNSET_AMBER("Sunset Gold", "Warm vibrant orange and gold palette")
 }
 
 enum class DocViewMode {
@@ -29,6 +33,16 @@ enum class CamScannerNavTab(val label: String) {
     SCAN("Scan"),
     FOLDERS("Folders"),
     SETTINGS("Settings")
+}
+
+enum class ToolActionType(val title: String, val subtitle: String) {
+    WORD_OPEN("Word Opener", "Open, read & convert Word documents"),
+    PDF_TO_IMAGE("PDF to Image", "Export document pages as high-res images"),
+    COMPRESS("PDF Compressor", "Select document to reduce file size"),
+    MERGE("PDF Merger", "Select multiple documents to combine"),
+    SPLIT("PDF Splitter", "Divide document into separate pages"),
+    SIGN("PDF Sign", "Draw and place your digital signature"),
+    LOCK("PDF Lock", "Password protect and secure document")
 }
 
 enum class DocumentCategory {

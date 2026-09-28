@@ -62,14 +62,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-            val isSystemDark = isSystemInDarkTheme()
-            val isDarkTheme = when (uiState.appThemeMode) {
-                AppThemeMode.LIGHT -> false
-                AppThemeMode.DARK -> true
-                AppThemeMode.SYSTEM -> isSystemDark
-            }
 
-            MyApplicationTheme(darkTheme = isDarkTheme) {
+            MyApplicationTheme(themeMode = uiState.appThemeMode) {
                 val context = LocalContext.current
 
                 // Runtime notification permission request for Android 13+ (TIRAMISU / API 33+)
@@ -224,7 +218,79 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // 9. Blank Project / Blueprint Dialog
+                    // 9. Choose Document Dialog for Dedicated Tool Actions
+                    if (uiState.chooseDocAction != null) {
+                        ChooseDocumentDialog(
+                            actionType = uiState.chooseDocAction!!,
+                            documents = uiState.documents,
+                            onDismiss = { viewModel.dismissChooseDoc() },
+                            onDocumentSelected = { doc ->
+                                viewModel.onDocumentChosenForAction(doc, uiState.chooseDocAction!!, context)
+                            },
+                            onMultipleDocumentsSelected = { docIds ->
+                                viewModel.dismissChooseDoc()
+                                viewModel.mergeDocuments(docIds, "Merged_${System.currentTimeMillis() % 10000}", context)
+                            },
+                            onWordFileImported = { uri ->
+                                viewModel.openWordDocumentFromUri(uri, context)
+                            }
+                        )
+                    }
+
+                    // 10. Word Document Reader & Converter Dialog
+                    if (uiState.isWordViewerOpen) {
+                        WordOpenerDialog(
+                            docTitle = uiState.wordDocTitle,
+                            content = uiState.wordDocContent,
+                            onConvertToPdf = { title, text ->
+                                viewModel.convertWordToPdf(title, text, context)
+                            },
+                            onDismiss = { viewModel.setWordViewerOpen(false) }
+                        )
+                    }
+
+                    // 11. PDF to Image Extractor Dialog
+                    if (uiState.isPdfToImageOpen) {
+                        PdfToImageDialog(
+                            docTitle = uiState.pdfToImageDocTitle,
+                            imageFiles = uiState.pdfToImageFiles,
+                            onDismiss = { viewModel.setPdfToImageOpen(false) }
+                        )
+                    }
+
+                    // 12. Digital Signature Dialog (Global)
+                    if (uiState.isSignatureDialogOpen && uiState.currentScreen != AppScreen.WORKSPACE) {
+                        SignaturePadDialog(
+                            onDismiss = { viewModel.setSignatureDialogOpen(false) },
+                            onSignatureConfirmed = { sig ->
+                                val target = uiState.docToSign ?: uiState.activeDocument ?: uiState.documents.firstOrNull()
+                                if (target != null) {
+                                    viewModel.signDocumentWithDigitalSignature(target, sig, context)
+                                } else {
+                                    viewModel.applyDigitalSignature(sig)
+                                }
+                            }
+                        )
+                    }
+
+                    // 13. Security & Password Protection Dialog (Global)
+                    if (uiState.isSecurityDialogOpen && uiState.currentScreen != AppScreen.WORKSPACE) {
+                        val target = uiState.docToLock ?: uiState.activeDocument ?: uiState.documents.firstOrNull()
+                        SecurityWatermarkDialog(
+                            currentWatermark = target?.watermarkText ?: "",
+                            isPasswordProtected = target?.isPasswordProtected ?: false,
+                            onSaveSecurity = { watermark, pwd ->
+                                if (target != null) {
+                                    viewModel.lockDocumentWithSecurity(target, watermark, pwd, context)
+                                } else {
+                                    viewModel.saveSecuritySettings(watermark, pwd)
+                                }
+                            },
+                            onDismiss = { viewModel.setSecurityDialogOpen(false) }
+                        )
+                    }
+
+                    // 14. Blank Project / Blueprint Dialog
                     if (uiState.isCreateProjectDialogOpen) {
                         CreateProjectDialog(
                             onDismiss = { viewModel.setCreateProjectDialogOpen(false) },
@@ -234,7 +300,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // 10. Document Library Dialog
+                    // 15. Document Library Dialog
                     if (uiState.isDocLibraryOpen) {
                         DocumentLibraryDialog(
                             documents = uiState.documents,
@@ -247,7 +313,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // 11. Build Engine Hub Dialog
+                    // 16. Build Engine Hub Dialog
                     if (uiState.isBuildDialogOpen) {
                         BuildWorkflowDialog(
                             isBuilding = uiState.isBuildingApp,
