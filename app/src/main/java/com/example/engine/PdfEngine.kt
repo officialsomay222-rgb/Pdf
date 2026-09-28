@@ -1,13 +1,19 @@
 package com.example.engine
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
 import com.example.model.*
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
@@ -1495,5 +1501,165 @@ object PdfEngine {
         FileOutputStream(outFile).use { pdfDocument.writeTo(it) }
         pdfDocument.close()
         return outFile
+    }
+
+    /**
+     * Saves a Bitmap directly to the user's phone Photo Gallery / Pictures storage (MediaStore).
+     * Makes it immediately visible in Google Photos, Gallery app, and File Manager.
+     */
+    fun saveBitmapToGallery(
+        context: Context,
+        bitmap: Bitmap,
+        title: String,
+        subFolder: String = "DocsZ"
+    ): Uri? {
+        val cleanName = title.replace("[^a-zA-Z0-9_-]".toRegex(), "_").ifBlank { "DocsZ_Image" }
+        val fileName = "${cleanName}_${System.currentTimeMillis()}.jpg"
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$subFolder")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+
+                val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                    }
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    context.contentResolver.update(uri, values, null, null)
+                    uri
+                } else null
+            } else {
+                @Suppress("DEPRECATION")
+                val picturesDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), subFolder).apply { mkdirs() }
+                val imageFile = File(picturesDir, fileName)
+                FileOutputStream(imageFile).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                }
+                MediaScannerConnection.scanFile(context, arrayOf(imageFile.absolutePath), arrayOf("image/jpeg"), null)
+                Uri.fromFile(imageFile)
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Saves a locally stored Image File to the user's phone Gallery (MediaStore).
+     */
+    fun saveImageFileToGallery(
+        context: Context,
+        sourceFile: File,
+        title: String = sourceFile.nameWithoutExtension,
+        subFolder: String = "DocsZ"
+    ): Uri? {
+        if (!sourceFile.exists()) return null
+        val cleanName = title.replace("[^a-zA-Z0-9_-]".toRegex(), "_").ifBlank { "DocsZ_Image" }
+        val fileName = "${cleanName}_${System.currentTimeMillis()}.jpg"
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$subFolder")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+
+                val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { outStream ->
+                        FileInputStream(sourceFile).use { inStream ->
+                            inStream.copyTo(outStream)
+                        }
+                    }
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    context.contentResolver.update(uri, values, null, null)
+                    uri
+                } else null
+            } else {
+                @Suppress("DEPRECATION")
+                val picturesDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), subFolder).apply { mkdirs() }
+                val targetFile = File(picturesDir, fileName)
+                sourceFile.copyTo(targetFile, overwrite = true)
+                MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf("image/jpeg"), null)
+                Uri.fromFile(targetFile)
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Saves all extracted image files to the user's phone Gallery, returning count saved.
+     */
+    fun saveAllImagesToGallery(
+        context: Context,
+        files: List<File>,
+        baseTitle: String
+    ): Int {
+        var count = 0
+        for ((idx, file) in files.withIndex()) {
+            val uri = saveImageFileToGallery(
+                context = context,
+                sourceFile = file,
+                title = "${baseTitle}_page_${idx + 1}"
+            )
+            if (uri != null) count++
+        }
+        return count
+    }
+
+    /**
+     * Saves a PDF File directly to the phone's public Downloads / Documents storage.
+     */
+    fun savePdfToPublicDocuments(
+        context: Context,
+        pdfFile: File,
+        title: String
+    ): Uri? {
+        if (!pdfFile.exists()) return null
+        val cleanName = title.replace("[^a-zA-Z0-9_-]".toRegex(), "_").ifBlank { "DocsZ_Export" }
+        val fileName = "${cleanName}_${System.currentTimeMillis()}.pdf"
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                    put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/DocsZ")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+
+                val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        FileInputStream(pdfFile).use { inStream ->
+                            inStream.copyTo(out)
+                        }
+                    }
+                    values.clear()
+                    values.put(MediaStore.Downloads.IS_PENDING, 0)
+                    context.contentResolver.update(uri, values, null, null)
+                    uri
+                } else null
+            } else {
+                @Suppress("DEPRECATION")
+                val docsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "DocsZ").apply { mkdirs() }
+                val targetFile = File(docsDir, fileName)
+                pdfFile.copyTo(targetFile, overwrite = true)
+                MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf("application/pdf"), null)
+                Uri.fromFile(targetFile)
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 }

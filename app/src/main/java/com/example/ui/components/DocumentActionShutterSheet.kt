@@ -42,6 +42,7 @@ fun DocumentActionShutterSheet(
     onMoveFolder: () -> Unit,
     onSplit: () -> Unit,
     onDuplicate: () -> Unit,
+    onSaveToDevice: (() -> Unit)? = null,
     onDelete: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -217,6 +218,17 @@ fun DocumentActionShutterSheet(
                     testTag = "shutter_duplicate_doc",
                     onClick = onDuplicate
                 )
+
+                if (onSaveToDevice != null) {
+                    ShutterActionRow(
+                        icon = Icons.Default.Download,
+                        iconTint = CamScannerTeal,
+                        title = "Save to Device Storage",
+                        subtitle = "Export PDF / image directly to phone gallery & files",
+                        testTag = "shutter_save_device_doc",
+                        onClick = onSaveToDevice
+                    )
+                }
 
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 4.dp),

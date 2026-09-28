@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.*
@@ -69,21 +70,63 @@ enum class WorkflowShortcut(
         tag = "shortcut_id_card"
     ),
     IMAGE_TO_PDF(
-        title = "Image to PDF & Scan",
+        title = "Image to PDF",
         description = "Camera scanner & gallery photos to PDF",
         icon = Icons.Default.CameraAlt,
         accentColor = Color(0xFF10B981),
         tag = "shortcut_image_to_pdf"
     ),
     PDF_COMPRESSOR(
-        title = "PDF Compressor",
+        title = "Compress PDF",
         description = "Reduce & optimize file size for sharing",
         icon = Icons.Default.Compress,
         accentColor = Color(0xFF0284C7),
         tag = "shortcut_pdf_compress"
     ),
+    PDF_SPLITTER(
+        title = "PDF Splitter",
+        description = "Crop pages or split into parts",
+        icon = Icons.Default.CallSplit,
+        accentColor = Color(0xFFF59E0B),
+        tag = "shortcut_pdf_split"
+    ),
+    MERGE_PDFS(
+        title = "Merge PDFs",
+        description = "Combine multiple documents into one",
+        icon = Icons.Default.CallMerge,
+        accentColor = Color(0xFFEC4899),
+        tag = "shortcut_merge_pdfs"
+    ),
+    FORMS_AND_SIGN(
+        title = "Sign PDF",
+        description = "Interactive fields & crypto certificates",
+        icon = Icons.Default.Draw,
+        accentColor = Color(0xFF06B6D4),
+        tag = "shortcut_forms_sign"
+    ),
+    SECURITY_WATERMARK(
+        title = "Lock PDF",
+        description = "AES-256 protection, watermarks & password",
+        icon = Icons.Default.Lock,
+        accentColor = Color(0xFFDC2626),
+        tag = "shortcut_security"
+    ),
+    WORD_TO_PDF(
+        title = "Word to PDF",
+        description = "Read & convert .docx files to PDF",
+        icon = Icons.Default.Description,
+        accentColor = Color(0xFF2563EB),
+        tag = "shortcut_word_to_pdf"
+    ),
+    PDF_TO_IMAGE(
+        title = "PDF to Image",
+        description = "Export sheets as high quality JPGs",
+        icon = Icons.Default.Collections,
+        accentColor = Color(0xFF8B5CF6),
+        tag = "shortcut_pdf_to_image"
+    ),
     OCR_TO_TEXT(
-        title = "To Word / Text OCR",
+        title = "OCR to Text",
         description = "Extract text & table data from documents",
         icon = Icons.Default.TextFields,
         accentColor = Color(0xFF8B5CF6),
@@ -103,33 +146,12 @@ enum class WorkflowShortcut(
         accentColor = Color(0xFFF59E0B),
         tag = "shortcut_cad_measure"
     ),
-    FORMS_AND_SIGN(
-        title = "Digital Signatures",
-        description = "Interactive fields & crypto certificates",
-        icon = Icons.Default.AssignmentTurnedIn,
-        accentColor = Color(0xFF06B6D4),
-        tag = "shortcut_forms_sign"
-    ),
-    MERGE_PDFS(
-        title = "Merge Multiple PDFs",
-        description = "Combine multiple documents into one",
-        icon = Icons.Default.CallMerge,
-        accentColor = Color(0xFFEC4899),
-        tag = "shortcut_merge_pdfs"
-    ),
     PAGE_ASSEMBLY(
         title = "Page Assembly",
         description = "Reorder sheets, rotate 90°, duplicate & split",
         icon = Icons.Default.AutoStories,
         accentColor = Color(0xFF6366F1),
         tag = "shortcut_page_assembly"
-    ),
-    SECURITY_WATERMARK(
-        title = "Security & Protect",
-        description = "AES-256 protection, watermarks & print locks",
-        icon = Icons.Default.Security,
-        accentColor = Color(0xFFEF4444),
-        tag = "shortcut_security"
     ),
     NEW_BLANK_PROJECT(
         title = "New Blueprint Project",
@@ -219,10 +241,20 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(contentPadding)
         ) {
-            Crossfade(
+            AnimatedContent(
                 targetState = uiState.activeNavTab,
-                animationSpec = tween(durationMillis = 50, easing = LinearEasing),
-                label = "activeTabCrossfade"
+                transitionSpec = {
+                    val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                    (slideInHorizontally(
+                        animationSpec = tween(220, easing = FastOutSlowInEasing),
+                        initialOffsetX = { fullWidth -> direction * (fullWidth / 6) }
+                    ) + fadeIn(animationSpec = tween(200))) togetherWith
+                    (slideOutHorizontally(
+                        animationSpec = tween(180, easing = FastOutSlowInEasing),
+                        targetOffsetX = { fullWidth -> -direction * (fullWidth / 6) }
+                    ) + fadeOut(animationSpec = tween(160)))
+                },
+                label = "activeTabTransition"
             ) { targetTab ->
                 when (targetTab) {
                     CamScannerNavTab.DOCS -> {
@@ -291,10 +323,10 @@ private fun DocsZBottomNavBar(
     ) {
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            shadowElevation = 14.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            tonalElevation = 0.dp,
+            shadowElevation = 6.dp,
+            border = null,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
@@ -402,7 +434,7 @@ private fun CapsuleTabItem(
 }
 
 // -------------------------------------------------------------
-// STAGGERED CAPSULE ENTRANCE CONTAINER
+// STAGGERED CAPSULE ENTRANCE CONTAINER (Ultra-Lightweight & Smooth)
 // -------------------------------------------------------------
 
 @Composable
@@ -412,42 +444,23 @@ private fun StaggeredCapsuleContainer(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val animatedAlpha by animateFloatAsState(
-        targetValue = if (isLoaded) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = 320,
-            delayMillis = (index * 50).coerceAtMost(350),
-            easing = FastOutSlowInEasing
-        ),
-        label = "capsuleAlpha_$index"
-    )
-    val animatedOffsetY by animateDpAsState(
-        targetValue = if (isLoaded) 0.dp else (22.dp + (index * 3).dp),
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "capsuleOffset_$index"
-    )
-    val animatedScale by animateFloatAsState(
-        targetValue = if (isLoaded) 1f else 0.95f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "capsuleScale_$index"
-    )
-
-    Box(
-        modifier = modifier
-            .offset(y = animatedOffsetY)
-            .graphicsLayer {
-                alpha = animatedAlpha
-                scaleX = animatedScale
-                scaleY = animatedScale
-            }
-    ) {
-        content()
+    if (!isLoaded) {
+        val animatedAlpha by animateFloatAsState(
+            targetValue = if (isLoaded) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = 200,
+                delayMillis = (index * 25).coerceAtMost(150),
+                easing = FastOutSlowInEasing
+            ),
+            label = "capsuleAlpha_$index"
+        )
+        Box(modifier = modifier.graphicsLayer { alpha = animatedAlpha }) {
+            content()
+        }
+    } else {
+        Box(modifier = modifier) {
+            content()
+        }
     }
 }
 
@@ -495,6 +508,8 @@ private fun DocsTabHomeContent(
             }
         }
     )
+
+    val chunkedDocs = remember(filteredDocs) { filteredDocs.chunked(2) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Multi-select Action Bar or Top Header
@@ -572,19 +587,40 @@ private fun DocsTabHomeContent(
                     CamScannerShortcutCarousel(
                         onShortcutClick = { shortcut ->
                             when (shortcut) {
+                                WorkflowShortcut.IMAGE_TO_PDF -> viewModel.setPdfMakerOpen(true)
                                 WorkflowShortcut.ID_CARD_SCAN -> viewModel.setIdCardScannerOpen(true)
-                                WorkflowShortcut.IMAGE_TO_PDF -> viewModel.setNavTab(CamScannerNavTab.SCAN)
                                 WorkflowShortcut.PDF_COMPRESSOR -> {
-                                    if (activeDoc != null) viewModel.openCompressorForDoc(activeDoc)
-                                    else if (filteredDocs.isNotEmpty()) viewModel.openCompressorForDoc(filteredDocs.first())
-                                    else onLaunchWorkflow(shortcut)
+                                    val target = activeDoc ?: filteredDocs.firstOrNull()
+                                    if (target != null) viewModel.openCompressorForDoc(target)
+                                    else viewModel.requestToolAction(ToolActionType.COMPRESS)
+                                }
+                                WorkflowShortcut.PDF_SPLITTER -> {
+                                    val target = activeDoc ?: filteredDocs.firstOrNull()
+                                    if (target != null) viewModel.setSplitDocDialogOpen(true, target)
+                                    else viewModel.requestToolAction(ToolActionType.SPLIT)
+                                }
+                                WorkflowShortcut.MERGE_PDFS -> viewModel.setMergeDocsDialogOpen(true)
+                                WorkflowShortcut.FORMS_AND_SIGN -> {
+                                    val target = activeDoc ?: filteredDocs.firstOrNull()
+                                    if (target != null) viewModel.requestSignatureForDoc(target)
+                                    else viewModel.requestToolAction(ToolActionType.SIGN)
+                                }
+                                WorkflowShortcut.SECURITY_WATERMARK -> {
+                                    val target = activeDoc ?: filteredDocs.firstOrNull()
+                                    if (target != null) viewModel.requestLockForDoc(target)
+                                    else viewModel.requestToolAction(ToolActionType.LOCK)
+                                }
+                                WorkflowShortcut.WORD_TO_PDF -> viewModel.requestToolAction(ToolActionType.WORD_OPEN)
+                                WorkflowShortcut.PDF_TO_IMAGE -> {
+                                    val target = activeDoc ?: filteredDocs.firstOrNull()
+                                    if (target != null) viewModel.convertPdfToImagesAndOpen(target, context)
+                                    else viewModel.requestToolAction(ToolActionType.PDF_TO_IMAGE)
                                 }
                                 WorkflowShortcut.OCR_TO_TEXT -> {
                                     val target = activeDoc ?: filteredDocs.firstOrNull()
                                     if (target != null) viewModel.extractTextFromDoc(target)
-                                    else Toast.makeText(context, "No document loaded to extract text", Toast.LENGTH_SHORT).show()
+                                    else Toast.makeText(context, "Select or import a document to extract text", Toast.LENGTH_SHORT).show()
                                 }
-                                WorkflowShortcut.MERGE_PDFS -> viewModel.setMergeDocsDialogOpen(true)
                                 else -> onLaunchWorkflow(shortcut)
                             }
                         }
@@ -736,18 +772,14 @@ private fun DocsTabHomeContent(
                         }
                     }
                 } else {
-                    // Grid View
-                    item {
-                        StaggeredCapsuleContainer(index = 6, isLoaded = screenLoaded) {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(2),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 1200.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(filteredDocs, key = { it.id }) { doc ->
+                    // Grid View (Chunked 2-column rows for native 120fps smooth scrolling)
+                    items(chunkedDocs, key = { row -> row.joinToString("_") { it.id } }) { rowDocs ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            for (doc in rowDocs) {
+                                Box(modifier = Modifier.weight(1f)) {
                                     DocZGridItemCard(
                                         document = doc,
                                         isSelected = uiState.selectedDocIds.contains(doc.id),
@@ -758,6 +790,9 @@ private fun DocsTabHomeContent(
                                         onOpenMore = { actionSheetDoc = doc }
                                     )
                                 }
+                            }
+                            if (rowDocs.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -810,6 +845,10 @@ private fun DocsTabHomeContent(
                 onDuplicate = {
                     actionSheetDoc = null
                     viewModel.duplicateDocument(targetDoc)
+                },
+                onSaveToDevice = {
+                    actionSheetDoc = null
+                    viewModel.saveDocumentToPublicStorage(targetDoc, context)
                 },
                 onDelete = {
                     actionSheetDoc = null
@@ -968,102 +1007,109 @@ private fun DocsZTopBar(
                     }
 
                     // Action Icons Row (Well-proportioned to prevent overlay on any screen)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // Expandable Search Button (Icon Capsule)
-                        IconButton(
-                            onClick = { isSearchExpanded = true },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(CamScannerTeal.copy(alpha = 0.12f))
-                                .border(0.5.dp, CamScannerTeal.copy(alpha = 0.4f), CircleShape)
-                                .testTag("home_search_expand_button")
+                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = CamScannerTeal,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                            // Expandable Search Button (Icon Capsule)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(CamScannerTeal.copy(alpha = 0.12f))
+                                    .border(0.5.dp, CamScannerTeal.copy(alpha = 0.4f), CircleShape)
+                                    .clickable { isSearchExpanded = true }
+                                    .testTag("home_search_expand_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = CamScannerTeal,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
 
-                        // Import Document / PDF Button
-                        IconButton(
-                            onClick = onImportFiles,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(CamScannerTeal.copy(alpha = 0.12f))
-                                .border(0.5.dp, CamScannerTeal.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FileOpen,
-                                contentDescription = "Import PDF",
-                                tint = CamScannerTeal,
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
+                            // Import Document / PDF Button
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(CamScannerTeal.copy(alpha = 0.12f))
+                                    .border(0.5.dp, CamScannerTeal.copy(alpha = 0.4f), CircleShape)
+                                    .clickable(onClick = onImportFiles),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileOpen,
+                                    contentDescription = "Import PDF",
+                                    tint = CamScannerTeal,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
 
-                        // View Mode Toggle (List vs Grid)
-                        IconButton(
-                            onClick = onToggleViewMode,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = if (docViewMode == DocViewMode.LIST) Icons.Default.GridView else Icons.Default.ViewList,
-                                contentDescription = "Toggle View",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
+                            // View Mode Toggle (List vs Grid)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                                    .clickable(onClick = onToggleViewMode),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (docViewMode == DocViewMode.LIST) Icons.Default.GridView else Icons.Default.ViewList,
+                                    contentDescription = "Toggle View",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
 
-                        // Sort Selector
-                        IconButton(
-                            onClick = onOpenSortMenu,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Sort,
-                                contentDescription = "Sort",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
+                            // Sort Selector
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                                    .clickable(onClick = onOpenSortMenu),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sort,
+                                    contentDescription = "Sort",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
 
-                        // Theme Toggle (Supports all 7 themes)
-                        IconButton(
-                            onClick = onToggleTheme,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = when (appThemeMode) {
-                                    AppThemeMode.LIGHT -> Icons.Default.LightMode
-                                    AppThemeMode.DARK -> Icons.Default.DarkMode
-                                    AppThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
-                                    AppThemeMode.OLED_BLACK -> Icons.Default.NightlightRound
-                                    AppThemeMode.WARM_SEPIA -> Icons.Default.MenuBook
-                                    AppThemeMode.NORDIC_FROST -> Icons.Default.AcUnit
-                                    AppThemeMode.SUNSET_AMBER -> Icons.Default.WbSunny
-                                },
-                                contentDescription = "Theme Mode",
-                                tint = CamScannerTeal,
-                                modifier = Modifier.size(17.dp)
-                            )
+                            // Theme Toggle (Supports all 7 themes)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                                    .clickable(onClick = onToggleTheme),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = when (appThemeMode) {
+                                        AppThemeMode.LIGHT -> Icons.Default.LightMode
+                                        AppThemeMode.DARK -> Icons.Default.DarkMode
+                                        AppThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
+                                        AppThemeMode.OLED_BLACK -> Icons.Default.NightlightRound
+                                        AppThemeMode.WARM_SEPIA -> Icons.Default.MenuBook
+                                        AppThemeMode.NORDIC_FROST -> Icons.Default.AcUnit
+                                        AppThemeMode.SUNSET_AMBER -> Icons.Default.WbSunny
+                                    },
+                                    contentDescription = "Theme Mode",
+                                    tint = CamScannerTeal,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1144,22 +1190,26 @@ private fun MultiSelectActionBar(
 private fun CamScannerShortcutCarousel(
     onShortcutClick: (WorkflowShortcut) -> Unit
 ) {
-    val shortcuts = listOf(
-        WorkflowShortcut.ID_CARD_SCAN,
-        WorkflowShortcut.IMAGE_TO_PDF,
-        WorkflowShortcut.PDF_COMPRESSOR,
-        WorkflowShortcut.OCR_TO_TEXT,
-        WorkflowShortcut.FORMS_AND_SIGN,
-        WorkflowShortcut.MARKUP_ANNOTATE,
-        WorkflowShortcut.CAD_MEASURE,
-        WorkflowShortcut.MERGE_PDFS
-    )
+    val shortcuts = remember {
+        listOf(
+            WorkflowShortcut.IMAGE_TO_PDF,
+            WorkflowShortcut.ID_CARD_SCAN,
+            WorkflowShortcut.PDF_COMPRESSOR,
+            WorkflowShortcut.PDF_SPLITTER,
+            WorkflowShortcut.MERGE_PDFS,
+            WorkflowShortcut.FORMS_AND_SIGN,
+            WorkflowShortcut.SECURITY_WATERMARK,
+            WorkflowShortcut.WORD_TO_PDF,
+            WorkflowShortcut.PDF_TO_IMAGE,
+            WorkflowShortcut.OCR_TO_TEXT
+        )
+    }
 
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(shortcuts) { shortcut ->
+        items(shortcuts, key = { it.tag }) { shortcut ->
             Card(
                 modifier = Modifier
                     .width(100.dp)
@@ -1215,20 +1265,22 @@ private fun CategoryChipsRow(
     selectedCategory: String,
     onSelectCategory: (String) -> Unit
 ) {
-    val categories = listOf(
-        "ALL" to "All Docs",
-        "ID_CARD" to "ID Cards",
-        "SPECIFICATION" to "Scans",
-        "CONTRACT" to "Contracts",
-        "INSPECTION_FORM" to "Forms",
-        "BLUEPRINT" to "Blueprints"
-    )
+    val categories = remember {
+        listOf(
+            "ALL" to "All Docs",
+            "ID_CARD" to "ID Cards",
+            "SPECIFICATION" to "Scans",
+            "CONTRACT" to "Contracts",
+            "INSPECTION_FORM" to "Forms",
+            "BLUEPRINT" to "Blueprints"
+        )
+    }
 
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(categories) { (key, label) ->
+        items(categories, key = { it.first }) { (key, label) ->
             val isSelected = selectedCategory == key
             FilterChip(
                 selected = isSelected,
@@ -2301,148 +2353,140 @@ private fun SettingsTabContent(
     viewModel: DocumentViewModel
 ) {
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
+            .verticalScroll(scrollState)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item {
+        Column {
             Text("Settings & Preferences", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Text("Customize Docs Z theme and engine", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         // Appearance / Theme Section
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("APPEARANCE & THEME", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(10.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("APPEARANCE & THEME", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(10.dp))
 
-                    // Row 1: Primary Dark & Light Modes
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ThemeOptionButton(
-                            label = "Light",
-                            icon = Icons.Default.LightMode,
-                            isSelected = uiState.appThemeMode == AppThemeMode.LIGHT,
-                            onClick = { viewModel.setAppThemeMode(AppThemeMode.LIGHT) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        ThemeOptionButton(
-                            label = "Dark",
-                            icon = Icons.Default.DarkMode,
-                            isSelected = uiState.appThemeMode == AppThemeMode.DARK,
-                            onClick = { viewModel.setAppThemeMode(AppThemeMode.DARK) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        ThemeOptionButton(
-                            label = "AMOLED",
-                            icon = Icons.Default.NightlightRound,
-                            isSelected = uiState.appThemeMode == AppThemeMode.OLED_BLACK,
-                            onClick = { viewModel.setAppThemeMode(AppThemeMode.OLED_BLACK) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Row 2: Reading & Tinted Themes
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ThemeOptionButton(
-                            label = "Sepia",
-                            icon = Icons.Default.MenuBook,
-                            isSelected = uiState.appThemeMode == AppThemeMode.WARM_SEPIA,
-                            onClick = { viewModel.setAppThemeMode(AppThemeMode.WARM_SEPIA) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        ThemeOptionButton(
-                            label = "Frost",
-                            icon = Icons.Default.AcUnit,
-                            isSelected = uiState.appThemeMode == AppThemeMode.NORDIC_FROST,
-                            onClick = { viewModel.setAppThemeMode(AppThemeMode.NORDIC_FROST) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        ThemeOptionButton(
-                            label = "Amber",
-                            icon = Icons.Default.WbSunny,
-                            isSelected = uiState.appThemeMode == AppThemeMode.SUNSET_AMBER,
-                            onClick = { viewModel.setAppThemeMode(AppThemeMode.SUNSET_AMBER) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Row 3: Follow OS System Auto
+                // Row 1: Primary Dark & Light Modes
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     ThemeOptionButton(
-                        label = "System Auto (Follow Device Default)",
-                        icon = Icons.Default.BrightnessAuto,
-                        isSelected = uiState.appThemeMode == AppThemeMode.SYSTEM,
-                        onClick = { viewModel.setAppThemeMode(AppThemeMode.SYSTEM) },
-                        modifier = Modifier.fillMaxWidth()
+                        label = "Light",
+                        icon = Icons.Default.LightMode,
+                        isSelected = uiState.appThemeMode == AppThemeMode.LIGHT,
+                        onClick = { viewModel.setAppThemeMode(AppThemeMode.LIGHT) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionButton(
+                        label = "Dark",
+                        icon = Icons.Default.DarkMode,
+                        isSelected = uiState.appThemeMode == AppThemeMode.DARK,
+                        onClick = { viewModel.setAppThemeMode(AppThemeMode.DARK) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionButton(
+                        label = "AMOLED",
+                        icon = Icons.Default.NightlightRound,
+                        isSelected = uiState.appThemeMode == AppThemeMode.OLED_BLACK,
+                        onClick = { viewModel.setAppThemeMode(AppThemeMode.OLED_BLACK) },
+                        modifier = Modifier.weight(1f)
                     )
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Row 2: Reading & Tinted Themes
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ThemeOptionButton(
+                        label = "Sepia",
+                        icon = Icons.Default.MenuBook,
+                        isSelected = uiState.appThemeMode == AppThemeMode.WARM_SEPIA,
+                        onClick = { viewModel.setAppThemeMode(AppThemeMode.WARM_SEPIA) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionButton(
+                        label = "Frost",
+                        icon = Icons.Default.AcUnit,
+                        isSelected = uiState.appThemeMode == AppThemeMode.NORDIC_FROST,
+                        onClick = { viewModel.setAppThemeMode(AppThemeMode.NORDIC_FROST) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOptionButton(
+                        label = "Amber",
+                        icon = Icons.Default.WbSunny,
+                        isSelected = uiState.appThemeMode == AppThemeMode.SUNSET_AMBER,
+                        onClick = { viewModel.setAppThemeMode(AppThemeMode.SUNSET_AMBER) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Row 3: Follow OS System Auto
+                ThemeOptionButton(
+                    label = "System Auto (Follow Device Default)",
+                    icon = Icons.Default.BrightnessAuto,
+                    isSelected = uiState.appThemeMode == AppThemeMode.SYSTEM,
+                    onClick = { viewModel.setAppThemeMode(AppThemeMode.SYSTEM) },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
         // PDF Generation Settings
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("PDF EXPORT DEFAULTS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(10.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("PDF EXPORT DEFAULTS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(10.dp))
 
-                    SettingRow(title = "Default Page Size", value = "A4 (595 x 842 pt)")
-                    SettingRow(title = "Scan Image Resolution", value = "300 DPI High-Definition")
-                    SettingRow(title = "Compressor Algorithm", value = "DCT Optimized Downsampling")
-                    SettingRow(title = "Intent Integration", value = "Open with Docs Z (Active)")
-                }
+                SettingRow(title = "Default Page Size", value = "A4 (595 x 842 pt)")
+                SettingRow(title = "Scan Image Resolution", value = "300 DPI High-Definition")
+                SettingRow(title = "Compressor Algorithm", value = "DCT Optimized Downsampling")
+                SettingRow(title = "Intent Integration", value = "Open with Docs Z (Active)")
             }
         }
 
         // Storage & App Info
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("APPLICATION INFO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(10.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("APPLICATION INFO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(10.dp))
 
-                    SettingRow(title = "Application Name", value = "Docs Z")
-                    SettingRow(title = "Version", value = "2.0.0 (CamScanner Edition)")
-                    SettingRow(title = "Engine", value = "Document OS Multi-Layer PDF & CAD")
-                    SettingRow(title = "Database", value = "Room SQLite Encrypted")
-                }
+                SettingRow(title = "Application Name", value = "Docs Z")
+                SettingRow(title = "Version", value = "2.0.0 (CamScanner Edition)")
+                SettingRow(title = "Engine", value = "Document OS Multi-Layer PDF & CAD")
+                SettingRow(title = "Database", value = "Room SQLite Encrypted")
             }
         }
 
         // Official App Attribution Card (Kept gracefully at the very bottom/last)
-        item {
-            PremiumOwnerCard()
-        }
+        PremiumOwnerCard()
 
-        item {
-            Spacer(modifier = Modifier.height(30.dp))
-        }
+        Spacer(modifier = Modifier.height(30.dp))
     }
 }
 
@@ -2500,6 +2544,7 @@ private fun SettingRow(title: String, value: String) {
  */
 @Composable
 private fun PremiumOwnerCard() {
+    val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -2577,6 +2622,49 @@ private fun PremiumOwnerCard() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center
             )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Official Visit button (opens owner-official.vercel.app directly without displaying raw url string)
+            Button(
+                onClick = {
+                    try {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://owner-official.vercel.app")
+                        ).apply {
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Could not open browser", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .testTag("visit_owner_website_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Language,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Visit Portfolio",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
 }

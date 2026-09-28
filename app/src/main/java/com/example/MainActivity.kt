@@ -12,7 +12,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -94,33 +96,53 @@ class MainActivity : ComponentActivity() {
                     containerColor = MaterialTheme.colorScheme.background,
                     contentWindowInsets = WindowInsets(0, 0, 0, 0)
                 ) { _ ->
-                    when (uiState.currentScreen) {
-                        AppScreen.HOME -> {
-                            HomeScreen(
-                                uiState = uiState,
-                                viewModel = viewModel,
-                                onOpenDocument = { viewModel.openDocument(it) },
-                                onLaunchWorkflow = { viewModel.launchWorkflow(it) },
-                                onResumeWorkspace = { viewModel.navigateToWorkspace() },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        AppScreen.READER -> {
-                            PdfNormalReaderScreen(
-                                uiState = uiState,
-                                viewModel = viewModel,
-                                onBack = { viewModel.navigateToHome() },
-                                onOpenInStudio = { doc -> viewModel.openDocumentInStudio(doc) },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        AppScreen.WORKSPACE -> {
-                            DocumentOsScreen(
-                                uiState = uiState,
-                                viewModel = viewModel,
-                                onNavigateHome = { viewModel.navigateToHome() },
-                                modifier = Modifier.fillMaxSize()
-                            )
+                    AnimatedContent(
+                        targetState = uiState.currentScreen,
+                        transitionSpec = {
+                            if (targetState == AppScreen.READER || targetState == AppScreen.WORKSPACE) {
+                                (slideInVertically(
+                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
+                                    initialOffsetY = { it / 6 }
+                                ) + fadeIn(animationSpec = tween(220))) togetherWith
+                                (fadeOut(animationSpec = tween(180)))
+                            } else {
+                                (fadeIn(animationSpec = tween(220))) togetherWith
+                                (slideOutVertically(
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                    targetOffsetY = { it / 6 }
+                                ) + fadeOut(animationSpec = tween(180)))
+                            }
+                        },
+                        label = "screenTransition"
+                    ) { screen ->
+                        when (screen) {
+                            AppScreen.HOME -> {
+                                HomeScreen(
+                                    uiState = uiState,
+                                    viewModel = viewModel,
+                                    onOpenDocument = { viewModel.requestOpenDocument(it) },
+                                    onLaunchWorkflow = { viewModel.launchWorkflow(it) },
+                                    onResumeWorkspace = { viewModel.navigateToWorkspace() },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            AppScreen.READER -> {
+                                PdfNormalReaderScreen(
+                                    uiState = uiState,
+                                    viewModel = viewModel,
+                                    onBack = { viewModel.navigateToHome() },
+                                    onOpenInStudio = { doc -> viewModel.openDocumentInStudio(doc) },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            AppScreen.WORKSPACE -> {
+                                DocumentOsScreen(
+                                    uiState = uiState,
+                                    viewModel = viewModel,
+                                    onNavigateHome = { viewModel.navigateToHome() },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
 
@@ -279,14 +301,29 @@ class MainActivity : ComponentActivity() {
                         SecurityWatermarkDialog(
                             currentWatermark = target?.watermarkText ?: "",
                             isPasswordProtected = target?.isPasswordProtected ?: false,
-                            onSaveSecurity = { watermark, pwd ->
+                            currentPassword = target?.password ?: "",
+                            onSaveSecurity = { watermark, isLocked, pwdVal ->
                                 if (target != null) {
-                                    viewModel.lockDocumentWithSecurity(target, watermark, pwd, context)
+                                    viewModel.lockDocumentWithSecurity(target, watermark, isLocked, pwdVal, context)
                                 } else {
-                                    viewModel.saveSecuritySettings(watermark, pwd)
+                                    viewModel.saveSecuritySettings(watermark, isLocked, pwdVal)
                                 }
                             },
                             onDismiss = { viewModel.setSecurityDialogOpen(false) }
+                        )
+                    }
+
+                    // 13.1 Password Prompt Dialog (When opening a locked document)
+                    val lockedDoc = uiState.docToUnlock
+                    if (uiState.isPasswordPromptOpen && lockedDoc != null) {
+                        PasswordPromptDialog(
+                            document = lockedDoc,
+                            onUnlock = {
+                                viewModel.unlockDocAndOpen(lockedDoc)
+                            },
+                            onDismiss = {
+                                viewModel.dismissPasswordPrompt()
+                            }
                         )
                     }
 
@@ -519,6 +556,31 @@ fun DocumentOsScreen(
                             .padding(end = 12.dp, bottom = 80.dp)
                     )
                 }
+
+                // 4. Floating Capsule Action & Page Navigation Bar (Floating cleanly over the canvas with transparent surrounding area)
+                FloatingCapsulePdfDock(
+                    activeToolMode = uiState.toolMode,
+                    currentPage = currentPage,
+                    totalPages = totalPages,
+                    onSelectToolMode = { mode ->
+                        if (uiState.toolMode == mode) {
+                            viewModel.setToolMode(WorkspaceToolMode.VIEW_NAVIGATE)
+                        } else {
+                            viewModel.setToolMode(mode)
+                        }
+                    },
+                    onPreviousPage = {
+                        val curr = activeTab?.activePageIndex ?: 0
+                        if (curr > 0) viewModel.setActivePage(curr - 1)
+                    },
+                    onNextPage = {
+                        val curr = activeTab?.activePageIndex ?: 0
+                        val total = activeTab?.pageCount ?: 1
+                        if (curr < total - 1) viewModel.setActivePage(curr + 1)
+                    },
+                    onOpenPageManager = { viewModel.setPageManagerOpen(true) },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
 
             // 3. Contextual Drawer (Only when an active editing tool is selected)
@@ -557,30 +619,6 @@ fun DocumentOsScreen(
                     )
                 }
             }
-
-            // 4. Floating Capsule Action & Page Navigation Bar
-            FloatingCapsulePdfDock(
-                activeToolMode = uiState.toolMode,
-                currentPage = currentPage,
-                totalPages = totalPages,
-                onSelectToolMode = { mode ->
-                    if (uiState.toolMode == mode) {
-                        viewModel.setToolMode(WorkspaceToolMode.VIEW_NAVIGATE)
-                    } else {
-                        viewModel.setToolMode(mode)
-                    }
-                },
-                onPreviousPage = {
-                    val curr = activeTab?.activePageIndex ?: 0
-                    if (curr > 0) viewModel.setActivePage(curr - 1)
-                },
-                onNextPage = {
-                    val curr = activeTab?.activePageIndex ?: 0
-                    val total = activeTab?.pageCount ?: 1
-                    if (curr < total - 1) viewModel.setActivePage(curr + 1)
-                },
-                onOpenPageManager = { viewModel.setPageManagerOpen(true) }
-            )
         }
 
         // 5. Global Document Workspace Modals
@@ -628,8 +666,9 @@ fun DocumentOsScreen(
             SecurityWatermarkDialog(
                 currentWatermark = activeDoc?.watermarkText ?: "",
                 isPasswordProtected = activeDoc?.isPasswordProtected ?: false,
-                onSaveSecurity = { watermark, pwd ->
-                    viewModel.saveSecuritySettings(watermark, pwd)
+                currentPassword = activeDoc?.password ?: "",
+                onSaveSecurity = { watermark, isLocked, pwdVal ->
+                    viewModel.saveSecuritySettings(watermark, isLocked, pwdVal)
                 },
                 onDismiss = { viewModel.setSecurityDialogOpen(false) }
             )
@@ -733,84 +772,89 @@ private fun ModernPdfTopBar(
             Spacer(modifier = Modifier.width(6.dp))
 
             // Right: Reader switch, Share, and Tools Menu
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = onSwitchToReader,
-                    modifier = Modifier.size(36.dp).testTag("switch_to_reader_button")
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MenuBook,
-                        contentDescription = "Normal Reader",
-                        tint = CamScannerTeal,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = onOpenExport,
-                    modifier = Modifier.size(36.dp).testTag("open_export_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = "Share PDF",
-                        tint = CamScannerTeal,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Box {
                     IconButton(
-                        onClick = onToggleMoreMenu,
-                        modifier = Modifier.size(36.dp).testTag("top_bar_more_button")
+                        onClick = onSwitchToReader,
+                        modifier = Modifier.size(34.dp).testTag("switch_to_reader_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More Options",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
+                            imageVector = Icons.Default.MenuBook,
+                            contentDescription = "Normal Reader",
+                            tint = CamScannerTeal,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
 
-                    DropdownMenu(
-                        expanded = showMoreMenu,
-                        onDismissRequest = onDismissMoreMenu
+                    IconButton(
+                        onClick = onOpenExport,
+                        modifier = Modifier.size(34.dp).testTag("open_export_button")
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Visual Page Assembly") },
-                            leadingIcon = { Icon(Icons.Default.AutoStories, contentDescription = null, tint = CamScannerTeal) },
-                            onClick = {
-                                onDismissMoreMenu()
-                                onOpenPageManager()
-                            }
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share PDF",
+                            tint = CamScannerTeal,
+                            modifier = Modifier.size(19.dp)
                         )
-                        DropdownMenuItem(
-                            text = { Text("Security Policies") },
-                            leadingIcon = { Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFFF59E0B)) },
-                            onClick = {
-                                onDismissMoreMenu()
-                                onOpenSecurity()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Compress PDF") },
-                            leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null, tint = CamScannerTeal) },
-                            onClick = onCompress
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Digital Signature") },
-                            leadingIcon = { Icon(Icons.Default.AssignmentTurnedIn, contentDescription = null, tint = CamScannerTeal) },
-                            onClick = onSign
-                        )
-                        DropdownMenuItem(
-                            text = { Text("CAD Calibration & Takeoff") },
-                            leadingIcon = { Icon(Icons.Default.SquareFoot, contentDescription = null, tint = Color(0xFFF59E0B)) },
-                            onClick = onCalibrate
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Extract Text (OCR)") },
-                            leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null, tint = Color(0xFF8B5CF6)) },
-                            onClick = onOcr
-                        )
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = onToggleMoreMenu,
+                            modifier = Modifier.size(34.dp).testTag("top_bar_more_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More Options",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = onDismissMoreMenu
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Visual Page Assembly") },
+                                leadingIcon = { Icon(Icons.Default.AutoStories, contentDescription = null, tint = CamScannerTeal) },
+                                onClick = {
+                                    onDismissMoreMenu()
+                                    onOpenPageManager()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Security Policies") },
+                                leadingIcon = { Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFFF59E0B)) },
+                                onClick = {
+                                    onDismissMoreMenu()
+                                    onOpenSecurity()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Compress PDF") },
+                                leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null, tint = CamScannerTeal) },
+                                onClick = onCompress
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Digital Signature") },
+                                leadingIcon = { Icon(Icons.Default.AssignmentTurnedIn, contentDescription = null, tint = CamScannerTeal) },
+                                onClick = onSign
+                            )
+                            DropdownMenuItem(
+                                text = { Text("CAD Calibration & Takeoff") },
+                                leadingIcon = { Icon(Icons.Default.SquareFoot, contentDescription = null, tint = Color(0xFFF59E0B)) },
+                                onClick = onCalibrate
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Extract Text (OCR)") },
+                                leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null, tint = Color(0xFF8B5CF6)) },
+                                onClick = onOcr
+                            )
+                        }
                     }
                 }
             }
@@ -830,22 +874,26 @@ private fun FloatingCapsulePdfDock(
     onSelectToolMode: (WorkspaceToolMode) -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
-    onOpenPageManager: () -> Unit
+    onOpenPageManager: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .background(Color.Transparent)
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            shadowElevation = 14.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-            modifier = Modifier.height(56.dp)
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            tonalElevation = 0.dp,
+            shadowElevation = 12.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)),
+            modifier = Modifier
+                .height(54.dp)
+                .testTag("floating_capsule_pdf_dock")
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 8.dp),

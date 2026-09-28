@@ -2,8 +2,12 @@ package com.example.ui.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -11,6 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.CamScannerTeal
@@ -19,12 +26,14 @@ import com.example.ui.theme.CamScannerTeal
 fun SecurityWatermarkDialog(
     currentWatermark: String,
     isPasswordProtected: Boolean,
-    onSaveSecurity: (watermark: String, passwordProtected: Boolean) -> Unit,
+    currentPassword: String = "",
+    onSaveSecurity: (watermark: String, passwordProtected: Boolean, passwordValue: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var watermarkText by remember { mutableStateOf(currentWatermark) }
     var passwordEnabled by remember { mutableStateOf(isPasswordProtected) }
-    var passwordValue by remember { mutableStateOf("DocSecurity2026") }
+    var passwordValue by remember { mutableStateOf(if (currentPassword.isNotBlank()) currentPassword else "1234") }
+    var isPasswordVisible by remember { mutableStateOf(false) }
     var preventPrinting by remember { mutableStateOf(true) }
     var preventTextCopy by remember { mutableStateOf(true) }
 
@@ -41,7 +50,7 @@ fun SecurityWatermarkDialog(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Security & Watermark",
+                    text = "Security & Protection",
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -69,7 +78,7 @@ fun SecurityWatermarkDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Password Protection",
                             color = MaterialTheme.colorScheme.onSurface,
@@ -77,7 +86,7 @@ fun SecurityWatermarkDialog(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Require passphrase to open document",
+                            text = "Prompt password every time document is opened",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 10.sp
                         )
@@ -91,11 +100,23 @@ fun SecurityWatermarkDialog(
                 }
 
                 if (passwordEnabled) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = passwordValue,
                         onValueChange = { passwordValue = it },
-                        label = { Text("Passphrase", fontSize = 11.sp) },
+                        label = { Text("Set Open Password", fontSize = 11.sp) },
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = CamScannerTeal) },
+                        trailingIcon = {
+                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Toggle password visibility",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth().testTag("encryption_password_input"),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp)
@@ -112,7 +133,7 @@ fun SecurityWatermarkDialog(
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Text(
-                            text = "PERMISSIONS",
+                            text = "SECURITY PERMISSIONS",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold
@@ -143,14 +164,14 @@ fun SecurityWatermarkDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSaveSecurity(watermarkText, passwordEnabled)
+                    onSaveSecurity(watermarkText, passwordEnabled, passwordValue.trim())
                     onDismiss()
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = CamScannerTeal),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.testTag("save_security_button")
             ) {
-                Text("Save", fontWeight = FontWeight.Bold)
+                Text("Save Protection", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

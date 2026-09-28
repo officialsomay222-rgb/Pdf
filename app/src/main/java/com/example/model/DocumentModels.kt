@@ -241,6 +241,7 @@ data class DocumentEntity(
     val createdAt: Long,
     val modifiedAt: Long,
     val isPasswordProtected: Boolean = false,
+    val password: String = "",
     val watermarkText: String = "",
     val scaleRealDistance: Float = 10f,
     val scalePixelDistance: Float = 100f,

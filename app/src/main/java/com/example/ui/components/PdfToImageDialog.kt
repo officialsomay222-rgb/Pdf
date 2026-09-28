@@ -7,15 +7,17 @@ import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,7 +31,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
+import com.example.engine.PdfEngine
 import com.example.ui.theme.CamScannerTeal
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
@@ -39,6 +45,8 @@ fun PdfToImageDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var isSavingAll by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -119,7 +127,9 @@ fun PdfToImageDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         itemsIndexed(imageFiles) { index, file ->
-                            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                            val bitmap = remember(file.absolutePath) {
+                                try { BitmapFactory.decodeFile(file.absolutePath) } catch (e: Exception) { null }
+                            }
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -137,6 +147,7 @@ fun PdfToImageDialog(
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     }
+                                    // Page Label
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.BottomStart)
@@ -150,6 +161,39 @@ fun PdfToImageDialog(
                                             color = Color.White,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    // Quick Save Single Image Button
+                                    IconButton(
+                                        onClick = {
+                                            coroutineScope.launch(Dispatchers.IO) {
+                                                val uri = PdfEngine.saveImageFileToGallery(
+                                                    context = context,
+                                                    sourceFile = file,
+                                                    title = "${docTitle}_page_${index + 1}"
+                                                )
+                                                withContext(Dispatchers.Main) {
+                                                    if (uri != null) {
+                                                        Toast.makeText(context, "Saved Page ${index + 1} to Gallery (Pictures/DocsZ)!", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(context, "Saved image to storage!", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(4.dp)
+                                            .size(30.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.6f))
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Download,
+                                            contentDescription = "Save image to gallery",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
@@ -167,14 +211,34 @@ fun PdfToImageDialog(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            Toast.makeText(context, "Saved ${imageFiles.size} images to device storage!", Toast.LENGTH_SHORT).show()
+                            if (isSavingAll) return@OutlinedButton
+                            isSavingAll = true
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val savedCount = PdfEngine.saveAllImagesToGallery(context, imageFiles, docTitle)
+                                withContext(Dispatchers.Main) {
+                                    isSavingAll = false
+                                    Toast.makeText(
+                                        context,
+                                        "Saved $savedCount images directly to Phone Gallery (Pictures/DocsZ)!",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
                         },
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f).height(44.dp)
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .testTag("save_all_images_button"),
+                        enabled = !isSavingAll && imageFiles.isNotEmpty()
                     ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        if (isSavingAll) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Save to Device", fontSize = 11.sp)
+                        Text(if (isSavingAll) "Saving..." else "Save All to Gallery", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Button(

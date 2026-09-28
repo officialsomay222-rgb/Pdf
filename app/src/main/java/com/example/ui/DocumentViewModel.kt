@@ -108,7 +108,9 @@ data class DocumentUiState(
     val pdfToImageDocTitle: String = "",
     val pdfToImageFiles: List<File> = emptyList(),
     val docToSign: DocumentEntity? = null,
-    val docToLock: DocumentEntity? = null
+    val docToLock: DocumentEntity? = null,
+    val isPasswordPromptOpen: Boolean = false,
+    val docToUnlock: DocumentEntity? = null
 )
 
 class DocumentViewModel(application: Application) : AndroidViewModel(application) {
@@ -126,6 +128,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     // Undo / Redo Stacks (keyed by docId)
     private val undoStack = mutableMapOf<String, MutableList<List<AnnotationItem>>>()
     private val redoStack = mutableMapOf<String, MutableList<List<AnnotationItem>>>()
+    private val unlockedDocIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     init {
         initializeWorkspace()
@@ -796,43 +799,34 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun openDocument(doc: DocumentEntity) {
-        openDocumentInReader(doc)
+        if (doc.isPasswordProtected && doc.password.isNotBlank() && !unlockedDocIds.contains(doc.id)) {
+            _uiState.update { it.copy(docToUnlock = doc, isPasswordPromptOpen = true) }
+            return
+        }
+        performOpenDocument(doc, AppScreen.READER)
     }
 
     fun openDocumentInReader(doc: DocumentEntity) {
-        val existingTab = _uiState.value.tabs.find { it.documentId == doc.id }
-        if (existingTab != null) {
-            selectTab(existingTab.id)
-            _uiState.update { it.copy(currentScreen = AppScreen.READER, activeDocument = doc) }
-        } else {
-            val newTab = DocumentWorkspaceTab(
-                id = UUID.randomUUID().toString(),
-                documentId = doc.id,
-                title = doc.title,
-                category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
-                activePageIndex = 0,
-                pageCount = doc.pageCount,
-                zoomLevel = 1.0f
-            )
-            _uiState.update {
-                it.copy(
-                    tabs = it.tabs + newTab,
-                    activeTabId = newTab.id,
-                    activeDocument = doc,
-                    isDocLibraryOpen = false,
-                    currentScreen = AppScreen.READER
-                )
-            }
+        if (doc.isPasswordProtected && doc.password.isNotBlank() && !unlockedDocIds.contains(doc.id)) {
+            _uiState.update { it.copy(docToUnlock = doc, isPasswordPromptOpen = true) }
+            return
         }
-        loadActivePageBitmap()
-        Toast.makeText(getApplication(), "Opened: ${doc.title}", Toast.LENGTH_SHORT).show()
+        performOpenDocument(doc, AppScreen.READER)
     }
 
     fun openDocumentInStudio(doc: DocumentEntity) {
+        if (doc.isPasswordProtected && doc.password.isNotBlank() && !unlockedDocIds.contains(doc.id)) {
+            _uiState.update { it.copy(docToUnlock = doc, isPasswordPromptOpen = true) }
+            return
+        }
+        performOpenDocument(doc, AppScreen.WORKSPACE)
+    }
+
+    private fun performOpenDocument(doc: DocumentEntity, targetScreen: AppScreen) {
         val existingTab = _uiState.value.tabs.find { it.documentId == doc.id }
         if (existingTab != null) {
             selectTab(existingTab.id)
-            _uiState.update { it.copy(currentScreen = AppScreen.WORKSPACE, activeDocument = doc) }
+            _uiState.update { it.copy(currentScreen = targetScreen, activeDocument = doc, isDocLibraryOpen = false) }
         } else {
             val newTab = DocumentWorkspaceTab(
                 id = UUID.randomUUID().toString(),
@@ -849,7 +843,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     activeTabId = newTab.id,
                     activeDocument = doc,
                     isDocLibraryOpen = false,
-                    currentScreen = AppScreen.WORKSPACE
+                    currentScreen = targetScreen
                 )
             }
         }
@@ -1566,7 +1560,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     )
                 }
                 pageBitmapCache.evictAll()
-                loadActivePageBitmap()
+                openDocumentInReader(updatedDoc)
             } catch (e: Exception) {
                 Toast.makeText(context, "Compression error: ${e.message}", Toast.LENGTH_SHORT).show()
             }
@@ -1790,7 +1784,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                         )
                     }
                     pageBitmapCache.evictAll()
-                    loadActivePageBitmap()
+                    openDocumentInReader(updatedDoc)
                     NotificationHelper.showCompletionNotification(
                         context,
                         "PDF Digitally Signed",
@@ -1810,6 +1804,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         doc: DocumentEntity,
         watermark: String,
         passwordProtected: Boolean,
+        passwordValue: String,
         context: Context
     ) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1836,6 +1831,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                     filePath = newPath,
                     watermarkText = watermark,
                     isPasswordProtected = passwordProtected,
+                    password = if (passwordProtected) passwordValue.trim() else "",
                     modifiedAt = System.currentTimeMillis()
                 )
                 docDao.updateDocument(updatedDoc)
@@ -1848,7 +1844,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                         )
                     }
                     pageBitmapCache.evictAll()
-                    loadActivePageBitmap()
+                    openDocumentInReader(updatedDoc)
                     NotificationHelper.showCompletionNotification(
                         context,
                         "PDF Security Applied",
@@ -1859,6 +1855,79 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     Toast.makeText(context, "Security lock error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun saveSecuritySettings(watermark: String, passwordProtected: Boolean, passwordValue: String = "") {
+        val active = _uiState.value.activeDocument ?: return
+        lockDocumentWithSecurity(active, watermark, passwordProtected, passwordValue, getApplication())
+    }
+
+    fun requestOpenDocument(doc: DocumentEntity) {
+        if (doc.isPasswordProtected && doc.password.isNotBlank()) {
+            _uiState.update { it.copy(docToUnlock = doc, isPasswordPromptOpen = true) }
+        } else {
+            openDocument(doc)
+        }
+    }
+
+    fun unlockDocAndOpen(doc: DocumentEntity) {
+        unlockedDocIds.add(doc.id)
+        _uiState.update { it.copy(isPasswordPromptOpen = false, docToUnlock = null) }
+        performOpenDocument(doc, AppScreen.READER)
+    }
+
+    fun dismissPasswordPrompt() {
+        _uiState.update { it.copy(isPasswordPromptOpen = false, docToUnlock = null) }
+    }
+
+    fun saveDocumentToPublicStorage(doc: DocumentEntity, context: Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                var currentPath = doc.filePath
+                if (currentPath.isBlank() || !File(currentPath).exists()) {
+                    val baseFile = PdfEngine.exportToPdfFile(
+                        context = context,
+                        documentTitle = doc.title,
+                        pageCount = doc.pageCount,
+                        category = try { DocumentCategory.valueOf(doc.category) } catch (e: Exception) { DocumentCategory.CONTRACT },
+                        annotations = _uiState.value.annotations[doc.id] ?: emptyList(),
+                        measurements = _uiState.value.measurements[doc.id] ?: emptyList(),
+                        formFields = _uiState.value.formFields[doc.id] ?: emptyList(),
+                        watermark = doc.watermarkText
+                    )
+                    currentPath = baseFile.absolutePath
+                }
+
+                val sourceFile = File(currentPath)
+                if (sourceFile.exists()) {
+                    val savedUri = PdfEngine.savePdfToPublicDocuments(context, sourceFile, doc.title)
+                    // If image scan, also save to gallery pictures
+                    if (doc.category == DocumentCategory.ID_CARD.name || doc.category == DocumentCategory.RECEIPT.name) {
+                        val bmp = BitmapFactory.decodeFile(currentPath)
+                        if (bmp != null) {
+                            PdfEngine.saveBitmapToGallery(context, bmp, doc.title)
+                        }
+                    }
+
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        NotificationHelper.showCompletionNotification(
+                            context,
+                            "Saved to Device Storage",
+                            "\"${doc.title}\" exported to phone Downloads/DocsZ folder."
+                        )
+                        Toast.makeText(
+                            context,
+                            "Saved \"${doc.title}\" to Device Storage (Downloads/DocsZ)!",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(context, "Storage save failed: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }

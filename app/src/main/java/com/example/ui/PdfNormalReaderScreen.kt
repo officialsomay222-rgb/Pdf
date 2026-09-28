@@ -491,6 +491,16 @@ fun PdfNormalReaderScreen(
                                     }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Save to Device Storage") },
+                                    leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = CamScannerTeal) },
+                                    onClick = {
+                                        showReaderToolsMenu = false
+                                        if (activeDoc != null) {
+                                            viewModel.saveDocumentToPublicStorage(activeDoc, context)
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Page Thumbnails") },
                                     leadingIcon = { Icon(Icons.Default.AutoStories, contentDescription = null, tint = CamScannerTeal) },
                                     onClick = {
